@@ -9,8 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # module_dir | testbench_file | top_module
 #
-# Runs the shared-testbench shims (shared_*_tb) exclusively. The original per-module
-# testbenches are kept in the repo for reference but are not run here.
+# Each entry is a thin shim that `includes test/common/hwpq_tb_common.svh, except the
+# bug-reproduction tb, which is standalone. hybrid_tree is omitted: its RTL does not
+# currently compile under iverilog.
 TESTS=(
   # Enqueue-enabled runs
   "register_array|hwpq/register_array/test/register_array_tb.sv|register_array_tb"

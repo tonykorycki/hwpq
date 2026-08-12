@@ -4,12 +4,16 @@
 #
 # Usage: test/run_sim.sh <module_dir> <testbench_file> <top_module>
 #   <module_dir>      name under hwpq/ (e.g. register_tree)
-#   <testbench_file>  path to the testbench .sv (e.g. hwpq/register_tree/test/register_tree_tb.sv)
+#   <testbench_file>  path to the testbench .sv, relative to the repo root
+#                     (e.g. hwpq/register_tree/test/register_tree_tb.sv)
 #   <top_module>      top-level module name declared in the testbench (e.g. register_tree_tb)
+#
+# Runs from any working directory: paths are resolved against the repo root, not $PWD.
 #
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(dirname "${SCRIPT_DIR}")"
 
 MODULE="$1"
 TB="$2"

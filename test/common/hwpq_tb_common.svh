@@ -22,6 +22,14 @@
       ENQ_ENA=0 program's post-fill "queue is full" fcheck reads !o_write_ready, which
       only holds for DUTs that advertise fullness; this flag skips it for those that don't.
 
+  HOW A RUN IS JUDGED PASS/FAIL:
+    run_sim.sh treats the simulator's exit status as the only pass signal, so a failing
+    run MUST end in $fatal -- that is the one construct iverilog exits nonzero on.
+    $error alone does not: it prints, then $finish still exits 0 and the run reports PASS.
+    This body already does the right thing (errors accumulate in error_count, and the
+    final block turns a nonzero count into $fatal). Any standalone tb added alongside
+    these shims has to follow the same rule.
+
   KEY INVARIANTS:
     - Drive stimulus and poll `settled` on the NEGEDGE. Sampling in the same timestep
       as the posedge reads stale state before the DUT's non-blocking updates propagate       

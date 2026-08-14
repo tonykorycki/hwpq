@@ -46,3 +46,8 @@ obj_dir
 *.vcd
 
 build/
+
+# JasperGold formal scratch
+formal/jgproject/
+formal/*.log
+jgproject/

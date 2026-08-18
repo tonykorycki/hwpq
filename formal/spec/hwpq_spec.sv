@@ -10,12 +10,11 @@
 //   to avoid relying on tool support, and unblock local testing
 // - `var` on the inputs keeps the ports single-driver under `default_nettype none`.
 //
-// CONTENTS (see formal/README.md section 4 for the tier definitions):
-//   Tier 0  assumptions - the interface contract we promise the DUT
-//   Tier 1  progress and handshake asserts
-//   4.5     anti-vacuity cover set
-// Tier 2 (occupancy) and Tier 3 (ordering, via the tv/count abstraction) are
-// not here yet.
+// CONTENTS:
+//   the interface contract we promise the DUT (assumptions)
+//   progress and handshake asserts
+//   the anti-vacuity cover set
+// Occupancy and ordering are not here yet.
 
 module hwpq_spec #(
     // These must match the elaborated DUT. The bind file passes them
@@ -65,7 +64,7 @@ module hwpq_spec #(
 
 
   // ---------------------------------------------------------------------------
-  // Tier 0 - the interface contract (assumptions)
+  // The interface contract (assumptions)
   //
   // EVERY ASSUMPTION IS A HOLE. Over-assume and the design can no longer reach
   // the interesting states, every assert passes vacuously, and the summary
@@ -80,7 +79,7 @@ module hwpq_spec #(
   generate
     // Guarded on HAS_BUSY as well as the parameter: with no busy state the
     // antecedent is unsatisfiable, so this constrains nothing and only leaves
-    // an UNREACHABLE precondition cover behind. See section 4.5.
+    // an UNREACHABLE precondition cover behind.
     if (HAS_BUSY && NO_CMD_WHILE_BUSY) begin : g_no_cmd_while_busy
       am_no_cmd_while_busy : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !settled |-> !i_wrt && !i_read);
@@ -96,7 +95,7 @@ module hwpq_spec #(
 
 
   // ---------------------------------------------------------------------------
-  // Tier 1 - progress and handshake
+  // Progress and handshake
   // ---------------------------------------------------------------------------
 
   // "At the first settled cycle at or after the next one, `cond` holds."
@@ -104,7 +103,7 @@ module hwpq_spec #(
   // This is what keeps the handshake asserts portable: a plain |=> is only
   // sound at MAX_SETTLE 1, and on a sequential module lands on a busy cycle
   // where the consequent is trivially true. Collapses back to |=> when
-  // `settled` is constant, so do NOT fork it per HAS_BUSY. See section 4.
+  // `settled` is constant, so do NOT fork it per HAS_BUSY.
   property p_at_next_settle(trigger, cond);
     @(posedge i_CLK) disable iff (!i_RSTn)
     trigger |=> (!settled)[*0:MAX_SETTLE] ##1 (settled && cond);
@@ -126,7 +125,7 @@ module hwpq_spec #(
 
   // A refused command has no effect: the ready does not flip in your favour.
   // There is no "accepted" signal on the interface and we do not need one -
-  // occupancy modelling is Tier 2's job. Both exclude `replace` by
+  // occupancy modelling is a separate concern. Both exclude `replace` by
   // construction, which is what stops them fighting the ENQ_ENA=0 modules.
   generate
     // Needs both: the command has to exist, and !o_write_ready has to actually
@@ -155,7 +154,7 @@ module hwpq_spec #(
 
 
   // ---------------------------------------------------------------------------
-  // 4.5 - anti-vacuity cover set. NOT OPTIONAL.
+  // Anti-vacuity cover set. NOT OPTIONAL.
   //
   // If any of these comes back UNREACHABLE an assumption has strangled the
   // design and every `proven` above it is worthless. common.tcl fails the run
@@ -191,7 +190,7 @@ module hwpq_spec #(
   c_reaches_empty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled && !o_read_ready);
 
-  // Parameters not yet consumed. QUEUE_SIZE arrives in Tier 2 (occupancy).
+  // Parameters not yet consumed. QUEUE_SIZE lands with occupancy tracking.
   localparam int UNUSED_GUARD = QUEUE_SIZE;
   if (UNUSED_GUARD < 0) begin : g_never
     // never elaborated; exists only to consume the parameters

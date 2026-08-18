@@ -49,5 +49,7 @@ build/
 
 # JasperGold formal scratch
 formal/jgproject/
+formal/jgproject_*/
 formal/*.log
+formal/*_summary.txt
 jgproject/

@@ -34,7 +34,13 @@ module hwpq_spec #(
 
     // Applies am_no_cmd_while_busy, which hides any bug needing a command
     // mid-operation (hole CH-2). Set 0 for a second, ungated run.
-    parameter bit NO_CMD_WHILE_BUSY = 1
+    parameter bit NO_CMD_WHILE_BUSY = 1,
+
+    // Does o_write_ready actually drop when the queue is full. The mirror of
+    // the testbench's TB_TRACKS_FULL: a replace-only DUT with no enqueue path
+    // gates nothing on fullness and reports o_write_ready = !busy. Not the same
+    // question as ENQ_ENA - register_array with ENQ_ENA=0 still tracks full.
+    parameter bit HAS_FULL = 1
 ) (
     input var logic                  i_CLK,
     input var logic                  i_RSTn,
@@ -123,7 +129,9 @@ module hwpq_spec #(
   // occupancy modelling is Tier 2's job. Both exclude `replace` by
   // construction, which is what stops them fighting the ENQ_ENA=0 modules.
   generate
-    if (ENQ_ENA) begin : g_enq_handshake
+    // Needs both: the command has to exist, and !o_write_ready has to actually
+    // mean "full" rather than "busy" or the antecedent is unreachable.
+    if (ENQ_ENA && HAS_FULL) begin : g_enq_handshake
       a_no_enq_when_full : assert property (p_at_next_settle(
           settled && !o_write_ready && cmd_enqueue, !o_write_ready));
     end
@@ -161,7 +169,12 @@ module hwpq_spec #(
     if (ENQ_ENA) begin : g_enq_covers
       c_enqueue_fires : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
           settled && o_write_ready && cmd_enqueue);
-      // Full is only reachable in a build that can actually push elements in.
+    end
+
+    // Gated on HAS_FULL, NOT on ENQ_ENA: a replace-only register_array still
+    // fills up, one evicted placeholder at a time. Only a DUT that never
+    // advertises fullness at all has to skip these.
+    if (HAS_FULL) begin : g_full_covers
       c_reaches_full : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
           settled && !o_write_ready);
       c_deq_from_full : cover property (@(posedge i_CLK) disable iff (!i_RSTn)

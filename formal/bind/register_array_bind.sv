@@ -10,7 +10,8 @@ bind register_array hwpq_spec #(
     .DATA_WIDTH (DATA_WIDTH),
     .ENQ_ENA    (ENQ_ENA),
     .HAS_BUSY   (1'b0),
-    .MAX_SETTLE (1)
+    .MAX_SETTLE (1),
+    .HAS_FULL   (1'b1)
 ) u_spec (
     .i_CLK        (i_CLK),
     .i_RSTn       (i_RSTn),

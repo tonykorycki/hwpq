@@ -36,6 +36,12 @@ module hwpq_spec #(
     // mid-operation (hole CH-2). Set 0 for a second, ungated run.
     parameter bit NO_CMD_WHILE_BUSY = 1,
 
+    // Assume a replace-only queue is filled before anything is read from it -
+    // the initialisation convention its callers are expected to follow. Set 0
+    // to drop the assumption and reproduce F-1. Ignored when ENQ_ENA=1, which
+    // has a real enqueue path and no placeholders to strand.
+    parameter bit ASSUME_FILL_FIRST = 1,
+
     // Does o_write_ready actually drop when the queue is full. The mirror of
     // the testbench's TB_TRACKS_FULL: a replace-only DUT with no enqueue path
     // gates nothing on fullness and reports o_write_ready = !busy. Not the same
@@ -91,6 +97,28 @@ module hwpq_spec #(
     if (!ENQ_ENA) begin : g_replace_only
       am_no_enqueue_cmd : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !cmd_enqueue);
+    end
+
+    // The initialisation convention, as an assumption: do not read from a
+    // replace-only queue until it has been filled once.
+    //
+    // A replace-only queue boots full of all-ones placeholders with size 0, and
+    // a payload sorts BELOW them, so until the placeholders are evicted a
+    // dequeue pops a placeholder rather than data - while `size` decrements
+    // anyway. That is F-1. This assumption keeps the proof inside the region
+    // the library actually supports; it does not make the behaviour go away.
+    //
+    // HOLE CH-4: any bug that needs a read during the fill phase is now
+    // unreachable. Set ASSUME_FILL_FIRST=0 for an ungated run.
+    if (!ENQ_ENA && ASSUME_FILL_FIRST) begin : g_fill_first
+      logic filled_once;
+      always_ff @(posedge i_CLK or negedge i_RSTn) begin
+        if (!i_RSTn) filled_once <= 1'b0;
+        else if (!o_write_ready) filled_once <= 1'b1;
+      end
+
+      am_fill_before_read : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
+          !filled_once |-> !cmd_dequeue);
     end
   endgenerate
 

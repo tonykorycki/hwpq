@@ -1,11 +1,12 @@
-# JasperGold proof: register_tree
+# JasperGold proof: register_array_pipelined
 #
 # Run from the REPO ROOT. Use formal/run.sh rather than invoking this directly.
 #
-# The first SEQUENTIAL module: both readies drop together while an operation is
-# in flight, so this is what actually exercises the busy-state machinery in the
-# spec - p_at_next_settle's non-degenerate path and a_progress. Everything
-# proven before this ran with `settled` constant 1.
+# Sequential, but unlike register_tree it has no settle timer: head_valid is a
+# data-adaptive compare, `queue[0] >= queue[1]` (:198). That makes the
+# black-box ordering properties the interesting ones here - a root-local
+# detector is only obviously sound when nothing can outrank the root while
+# hidden below it, and a_head_is_max is what decides whether that holds.
 
 clear -all
 
@@ -14,11 +15,9 @@ if {[info exists ::env(HWPQ_SELFTEST)]} { set HWPQ_SELFTEST $::env(HWPQ_SELFTEST
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
-    hwpq/register_tree/src/register_tree.sv
+    hwpq/register_array_pipelined/src/register_array_pipelined.sv
     formal/spec/hwpq_spec.sv
-    formal/bind/register_tree_bind.sv
-    formal/spec/hwpq_tree_aux.sv
-    formal/bind/register_tree_aux_bind.sv
+    formal/bind/register_array_pipelined_bind.sv
 }
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
@@ -28,11 +27,10 @@ if {$HWPQ_SELFTEST} {
 }
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
-# QUEUE_SIZE must be 2^k-1 for the tree designs: NODES_NEEDED is
-# (1 << TREE_DEPTH) - 1, and any other size leaves a partly-populated bottom
-# level. 7 is the smallest size with a real interior level.
-elaborate -top register_tree \
-    -parameter QUEUE_SIZE 7 \
+# QUEUE_SIZE must be EVEN: the design pairs elements
+# (PAIR_COUNT = QUEUE_SIZE/2, :41).
+elaborate -top register_array_pipelined \
+    -parameter QUEUE_SIZE 4 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    1
 
@@ -41,7 +39,7 @@ clock i_CLK
 reset ~i_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
-set HWPQ_MODULE        register_tree
+set HWPQ_MODULE        register_array_pipelined
 set HWPQ_ALLOW_BOUNDED 0
 set HWPQ_EXPECT_CEX    {}
 

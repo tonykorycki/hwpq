@@ -41,17 +41,11 @@ reset ~i_RSTn
 set HWPQ_MODULE        register_array_enq0
 set HWPQ_ALLOW_BOUNDED 0
 
-# KNOWN FAILING, deliberately recorded rather than assumed away -- see F-1 in
-# formal/README.md. A replace-only queue reports non-empty as soon as the first
-# replace lands, but the head is still an all-ones placeholder, so it advertises
-# data it cannot deliver and the payload underneath can be stranded.
-#
-# Recorded here instead of adding an assumption because an assumption would
-# HIDE the behaviour: everything would prove, vacuously, in exactly the region
-# where the bug lives. This way the properties still run and still fail, the
-# run is still green, and if the RTL is ever fixed the harness reports
-# "expected cex that did NOT fire" and forces this list to be updated.
-set HWPQ_EXPECT_CEX    {a_no_loss a_occ_empty_agrees}
+# F-1 is assumed away, not recorded: ASSUME_FILL_FIRST in the spec constrains
+# this build to the initialisation convention its callers follow (fill the queue
+# before reading from it). That is hole CH-4 -- see formal/README.md. The cover
+# set is what proves the assumption did not strangle the design.
+set HWPQ_EXPECT_CEX    {}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

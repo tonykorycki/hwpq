@@ -46,7 +46,12 @@ bind systolic_array hwpq_spec #(
     // F-7: this DUT advertises !o_write_ready one slot before it actually stops
     // accepting writes, so the spec's ready-based acceptance decode undercounts
     // without this. See the parameter comment in hwpq_spec.sv.
+`ifdef HWPQ_UNGATED
+    // run.sh --ungated: drop the workaround and reproduce the recorded defect.
+    .ASSUME_ENQ_WHEN_WREADY (1'b0)
+`else
     .ASSUME_ENQ_WHEN_WREADY (1'b1)
+`endif
 ) u_spec (
     .i_CLK        (i_CLK),
     .i_RSTn       (i_RSTn),

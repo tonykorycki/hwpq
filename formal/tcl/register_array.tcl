@@ -20,6 +20,8 @@ clear -all
 # repeats these two lines.
 set HWPQ_SELFTEST 0
 if {[info exists ::env(HWPQ_SELFTEST)]} { set HWPQ_SELFTEST $::env(HWPQ_SELFTEST) }
+set HWPQ_UNGATED 0
+if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED) }
 
 # sources
 # `-define` spelling varies across Jasper releases; if this errors, try
@@ -29,12 +31,19 @@ set src {
     formal/spec/hwpq_spec.sv
     formal/bind/register_array_bind.sv
 }
+set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
-    analyze -sv12 -define HWPQ_SELFTEST {*}$src
-} else {
-    analyze -sv12 {*}$src
+    lappend hwpq_defs HWPQ_SELFTEST
 }
+if {$HWPQ_UNGATED} {
+    puts "### UNGATED MODE: workaround assumptions dropped; the recorded"
+    puts "###               shortcomings are expected to reproduce."
+    lappend hwpq_defs HWPQ_UNGATED
+}
+set hwpq_dflags {}
+foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
+analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # elaborate SMALL
 # QUEUE_SIZE must be EVEN: the design pairs elements
@@ -65,7 +74,9 @@ set HWPQ_ALLOW_BOUNDED 0
 # common.tcl to expect the failure -- that would convert it back into a pass.
 # run.sh asserts the exit code is 1. (HWPQ_EXPECT_CEX itself is exercised by
 # formal/smoke.sh's stub tests, and is there for real bug reproductions later.)
-set HWPQ_EXPECT_CEX {}
+# No workaround assumption applies here, so --ungated is a no-op and the
+# property set must be clean in both modes.
+set HWPQ_EXPECT_CEX    {}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

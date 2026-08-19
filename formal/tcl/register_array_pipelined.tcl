@@ -12,6 +12,8 @@ clear -all
 
 set HWPQ_SELFTEST 0
 if {[info exists ::env(HWPQ_SELFTEST)]} { set HWPQ_SELFTEST $::env(HWPQ_SELFTEST) }
+set HWPQ_UNGATED 0
+if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED) }
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
@@ -19,12 +21,19 @@ set src {
     formal/spec/hwpq_spec.sv
     formal/bind/register_array_pipelined_bind.sv
 }
+set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
-    analyze -sv12 -define HWPQ_SELFTEST {*}$src
-} else {
-    analyze -sv12 {*}$src
+    lappend hwpq_defs HWPQ_SELFTEST
 }
+if {$HWPQ_UNGATED} {
+    puts "### UNGATED MODE: workaround assumptions dropped; the recorded"
+    puts "###               shortcomings are expected to reproduce."
+    lappend hwpq_defs HWPQ_UNGATED
+}
+set hwpq_dflags {}
+foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
+analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # QUEUE_SIZE must be EVEN: the design pairs elements
@@ -41,6 +50,8 @@ reset ~i_RSTn
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_array_pipelined
 set HWPQ_ALLOW_BOUNDED 0
+# No workaround assumption applies here, so --ungated is a no-op and the
+# property set must be clean in both modes.
 set HWPQ_EXPECT_CEX    {}
 
 source formal/tcl/common.tcl

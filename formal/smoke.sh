@@ -7,7 +7,7 @@
 # Four checks:
 #   1. lint      -- the spec and bind elaborate together under Verilator
 #   2. polarity+ -- normal build: the plumbing property must NOT fire
-#   3. polarity- -- HWPQ_SELFTEST build: the inverted property MUST fire
+#   3. polarity- -- HWPQ_SELFTEST build: the self-test property MUST fire
 #   4. tcl       -- common.tcl parses, and its verdict logic returns the right
 #                   exit codes for clean / cex / unreachable-cover /
 #                   no-asserts / expected-cex cases
@@ -83,7 +83,7 @@ else
 fi
 
 echo
-echo "=== 3. polarity-: the inverted property MUST fire ==="
+echo "=== 3. polarity-: the self-test property MUST fire ==="
 if build_and_run bad +define+HWPQ_SELFTEST; then
   bad "self-test build did NOT fire -- the harness cannot report failures"
 else

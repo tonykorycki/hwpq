@@ -48,6 +48,20 @@ module hwpq_spec #(
     // question as ENQ_ENA - register_array with ENQ_ENA=0 still tracks full.
     parameter bit HAS_FULL = 1,
 
+    // How many elements the DUT can actually hold, when that is not QUEUE_SIZE.
+    //
+    // The occupancy properties need a capacity to compare against, and for the
+    // register designs it is simply QUEUE_SIZE. systolic_array is the first that
+    // differs: it splits the array into an input and an output buffer and must
+    // keep two slots free for its shift network to move at all, so its real
+    // capacity is QUEUE_SIZE-2 (measured, F-9).
+    //
+    // Before this existed, such a DUT had to run with HAS_FULL=0 - which silently
+    // dropped a_no_enq_when_full, a_occ_full_agrees and both full covers, so the
+    // module was proved strictly more weakly than the rest with nothing in the
+    // table to say so. Naming the capacity is what lets it be proved the same way.
+    parameter int CAPACITY = QUEUE_SIZE,
+
     // Assume the caller only enqueues when o_write_ready is high.
     //
     // The occupancy and ordering models reconstruct "the DUT accepted this
@@ -255,7 +269,7 @@ module hwpq_spec #(
 
   // One bit of headroom past QUEUE_SIZE so over-acceptance is observable
   // instead of wrapping around into a legal-looking value.
-  localparam int OCC_W = $clog2(QUEUE_SIZE + 1) + 1;
+  localparam int OCC_W = $clog2(CAPACITY + 1) + 1;
 
   logic [OCC_W-1:0] occ, occ_next;
 
@@ -275,7 +289,7 @@ module hwpq_spec #(
   end
 
   a_occ_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
-      settled |-> occ <= OCC_W'(QUEUE_SIZE));
+      settled |-> occ <= OCC_W'(CAPACITY));
 
   a_occ_empty_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled |-> ((occ == 0) == !o_read_ready));
@@ -283,7 +297,7 @@ module hwpq_spec #(
   generate
     if (HAS_FULL) begin : g_occ_full
       a_occ_full_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
-          settled |-> ((occ == OCC_W'(QUEUE_SIZE)) == !o_write_ready));
+          settled |-> ((occ == OCC_W'(CAPACITY)) == !o_write_ready));
     end
   endgenerate
 
@@ -323,7 +337,7 @@ module hwpq_spec #(
   am_tv_legal : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       tv != '0 && tv != '1);
 
-  localparam int CNT_W = $clog2(QUEUE_SIZE + 1) + 1;
+  localparam int CNT_W = $clog2(CAPACITY + 1) + 1;
 
   logic [CNT_W-1:0] cnt, cnt_next;
 

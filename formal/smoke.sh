@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Local Phase 1 validation. Runs everything that can be checked WITHOUT a
+# Local validation. Runs everything that can be checked WITHOUT a
 # JasperGold license, so a broken spec is caught in seconds instead of after an
 # SSH round trip.
 #
@@ -42,8 +42,8 @@ need tclsh
 
 echo "=== 1. lint: spec + bind elaborate against the DUT ==="
 # Waivers, each deliberate:
-#   UNUSEDSIGNAL  expected while the spec is Phase-1 sized -- i_wrt/i_read/
-#                 i_data are wired but not yet read. Consumed in Phase 2.
+#   UNUSEDSIGNAL  some interface ports are wired for future properties
+#                 before anything reads them.
 #   SYNCASYNCNET  inherent to `disable iff (!i_RSTn)` on an async-reset design:
 #                 the RTL flops i_RSTn asynchronously, the property samples it
 #                 synchronously. That is exactly what `disable iff` is for, and

@@ -13,8 +13,9 @@
 // CONTENTS:
 //   the interface contract we promise the DUT (assumptions)
 //   progress and handshake asserts
+//   occupancy, against the spec's own count of resident elements
+//   ordering, via a symbolic tracked value
 //   the anti-vacuity cover set
-// Occupancy and ordering are not here yet.
 
 module hwpq_spec #(
     // These must match the elaborated DUT. The bind file passes them
@@ -154,6 +155,143 @@ module hwpq_spec #(
 
 
   // ---------------------------------------------------------------------------
+  // Accepted commands
+  //
+  // The DUTs gate acceptance internally on the matching ready, so the same
+  // decode reconstructs it from outside. `replace` needs neither ready, only
+  // quiescence. Everything below counts on these and nothing else.
+  // ---------------------------------------------------------------------------
+
+  wire acc_enq = settled && ENQ_ENA && cmd_enqueue && o_write_ready;
+  wire acc_deq = settled && cmd_dequeue && o_read_ready;
+  wire acc_rep = settled && cmd_replace;
+
+  // Does the head hold a real element, as opposed to a padding '0 or one of the
+  // all-ones placeholders an ENQ_ENA=0 build resets into. Both sentinels are
+  // excluded from the payload alphabet, so this one predicate covers every
+  // build: a replace that evicts a non-element is an insert, not a swap.
+  wire head_is_element = (o_data != '0) && (o_data != '1);
+
+
+  // ---------------------------------------------------------------------------
+  // Occupancy
+  //
+  // How many elements the spec believes are resident, from accepted commands
+  // alone, checked against what the DUT advertises. Catches over-acceptance at
+  // the moment it happens, and - unlike the ordering properties below, which
+  // say nothing about o_write_ready - catches a DUT that refuses work while it
+  // still has room.
+  // ---------------------------------------------------------------------------
+
+  // One bit of headroom past QUEUE_SIZE so over-acceptance is observable
+  // instead of wrapping around into a legal-looking value.
+  localparam int OCC_W = $clog2(QUEUE_SIZE + 1) + 1;
+
+  logic [OCC_W-1:0] occ, occ_next;
+
+  always_comb begin
+    occ_next = occ;
+    // A dequeue only removes an ELEMENT if the head was one. In a replace-only
+    // build the head can still be an all-ones placeholder, and popping that
+    // costs the queue no user data.
+    if (acc_enq) occ_next = occ + OCC_W'(1);
+    else if (acc_deq && head_is_element && occ > 0) occ_next = occ - OCC_W'(1);
+    else if (acc_rep && !head_is_element) occ_next = occ + OCC_W'(1);
+  end
+
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin
+    if (!i_RSTn) occ <= '0;
+    else occ <= occ_next;
+  end
+
+  a_occ_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled |-> occ <= OCC_W'(QUEUE_SIZE));
+
+  a_occ_empty_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled |-> ((occ == 0) == !o_read_ready));
+
+  generate
+    if (HAS_FULL) begin : g_occ_full
+      a_occ_full_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+          settled |-> ((occ == OCC_W'(QUEUE_SIZE)) == !o_write_ready));
+    end
+  endgenerate
+
+
+  // ---------------------------------------------------------------------------
+  // Ordering
+  //
+  // Rather than a golden sorted array - QUEUE_SIZE x DATA_WIDTH bits of extra
+  // state, which stalls the proof on anything but the smallest instance - pick
+  // ONE value and count how many copies the queue should hold. `tv` is an
+  // unconstrained constant, so proving the properties for it proves them for
+  // every value at once. A handful of counter bits does the work of a full
+  // reference model.
+  //
+  // The three asserts are complete together. Let h be o_data:
+  //   a_head_is_max says h >= every resident value.
+  //   a_head_present, contrapositive, says h is itself resident (take tv = h).
+  //   Together: h is resident AND outranks everything resident, which is
+  //   exactly "the head is the maximum" - not an approximation of it.
+  //   a_no_loss closes the escape hatch: both of the others are guarded on
+  //   o_read_ready, so without it a DUT that eats an element and then reports
+  //   empty satisfies them vacuously.
+  // ---------------------------------------------------------------------------
+
+  // Deliberately undriven, so the tool is free to pick any value and must make
+  // the properties hold for all of them. ($anyconst would say this directly but
+  // is not accepted by every Jasper parser; an undriven net plus a stability
+  // assumption is the portable spelling.)
+  logic [DATA_WIDTH-1:0] tv;
+
+  am_tv_stable : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
+      ##1 $stable(tv));
+
+  // tv has to be a value the queue could actually be holding, or the count is
+  // pinned at zero and every property below passes without saying anything.
+  // c_tracked_present is what detects that.
+  am_tv_legal : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
+      tv != '0 && tv != '1);
+
+  localparam int CNT_W = $clog2(QUEUE_SIZE + 1) + 1;
+
+  logic [CNT_W-1:0] cnt, cnt_next;
+
+  // A replace that evicts a non-element pops nothing, but it needs no special
+  // case: o_data is then a sentinel, and am_tv_legal already excludes both, so
+  // the decrement cannot fire.
+  always_comb begin
+    cnt_next = cnt;
+    if (acc_enq && i_data == tv) cnt_next = cnt + CNT_W'(1);
+    else if (acc_deq && o_data == tv && cnt > 0) cnt_next = cnt - CNT_W'(1);
+    else if (acc_rep) begin
+      case ({i_data == tv, o_data == tv})
+        2'b10:   cnt_next = cnt + CNT_W'(1);
+        2'b01:   cnt_next = (cnt > 0) ? cnt - CNT_W'(1) : cnt;
+        default: cnt_next = cnt;
+      endcase
+    end
+  end
+
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin
+    if (!i_RSTn) cnt <= '0;
+    else cnt <= cnt_next;
+  end
+
+  // no silent loss: if a copy should be resident, the DUT must not claim empty
+  a_no_loss : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled && cnt > 0 |-> o_read_ready);
+
+  // the head outranks everything resident
+  a_head_is_max : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled && o_read_ready && cnt > 0 |-> o_data >= tv);
+
+  // the head is an element that is genuinely present
+  a_head_present : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled && o_read_ready && cnt == 0 |-> o_data != tv);
+
+
+  // ---------------------------------------------------------------------------
   // Anti-vacuity cover set. NOT OPTIONAL.
   //
   // If any of these comes back UNREACHABLE an assumption has strangled the
@@ -190,11 +328,15 @@ module hwpq_spec #(
   c_reaches_empty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled && !o_read_ready);
 
-  // Parameters not yet consumed. QUEUE_SIZE lands with occupancy tracking.
-  localparam int UNUSED_GUARD = QUEUE_SIZE;
-  if (UNUSED_GUARD < 0) begin : g_never
-    // never elaborated; exists only to consume the parameters
-  end
+  // These two guard the tracking mechanism itself. If tv ever gets pinned to a
+  // value the queue cannot hold, the count sticks at zero and every ordering
+  // property above passes while checking nothing - a fully green table that
+  // looks exactly like success.
+  c_tracked_present : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled && cnt > 0);
+
+  c_tracked_two : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      settled && cnt > 1);
 
 endmodule
 

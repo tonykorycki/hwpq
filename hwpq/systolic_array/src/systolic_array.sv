@@ -84,8 +84,19 @@ module systolic_array #(
   // full, a bare enqueue only when !full.
   wire writing_ib0 = i_wrt && (i_read || !full);
   assign o_data  = OB[0];
-  // we need 2 empty spaces for the systolic to work, and we cannot write/read right after a read
-  assign o_write_ready = !(size >= (QUEUE_SIZE - 3)) && (o_data != MIN_VALUE || empty); 
+  // Derived from `full` rather than from its own threshold, so the two cannot
+  // drift apart. They used to: o_write_ready stopped advertising room at
+  // QUEUE_SIZE-3 while the enqueue path kept accepting until QUEUE_SIZE-2, so a
+  // caller honouring the ready lost a usable slot for nothing, and a caller
+  // ignoring it hit a window the queue had said was closed.
+  //
+  // The two reserved slots are what keeps the shift network able to move:
+  // IB_shift_valid is anchored on the last IB slot being MIN_VALUE, and with
+  // only one the array packs solid and the queue wedges permanently.
+  //
+  // The second term holds the ready low while a MIN_VALUE bubble sits at the
+  // head after a read - that is the busy state, not a capacity limit.
+  assign o_write_ready = !full && (o_data != MIN_VALUE || empty); 
   assign o_read_ready = !empty && (o_data != MIN_VALUE);
 
   // Sequential logic

@@ -1,9 +1,8 @@
 // Attaches hwpq_systolic_aux to systolic_array
 //
-// Deliberately does NOT bind hwpq_spec alongside it. The spec carries
-// ASSUME_ENQ_WHEN_WREADY, which forbids exactly the window this file exists to
-// characterise - binding both would make every property here vacuous and the
-// covers unreachable.
+// Bound alone, without hwpq_spec: this file asks a white-box question about the
+// module's two capacity thresholds, and needs no interface-level assumptions to
+// do it.
 bind systolic_array hwpq_systolic_aux #(
     .QUEUE_SIZE(QUEUE_SIZE)
 ) u_sys_aux (

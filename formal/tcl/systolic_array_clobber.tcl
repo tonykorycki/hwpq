@@ -52,18 +52,11 @@ reset ~i_RSTn
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        systolic_array_clobber
 set HWPQ_ALLOW_BOUNDED 0
-# Ungated runs must reproduce EXACTLY these and nothing else. If one stops
-# firing the defect was fixed and the assumption should be retired; if a new
-# one appears, something regressed. Either way the run fails and says which.
-#   F-8: without the assumption a caller may assert i_wrt while full, which the
-#   sorting network acts on even though the datapath refused it - destroying
-#   IB[0] and stranding cells the size counter does not know about. This is a
-#   REAL RTL defect, unlike the F-7 rows above.
-if {$HWPQ_UNGATED} {
-    set HWPQ_EXPECT_CEX {a_no_clobber a_no_ghost_cells}
-} else {
-    set HWPQ_EXPECT_CEX {}
-}
+# No workaround assumption applies here any more. F-8 is fixed, so these
+# properties hold with writes completely unconstrained and the ungated run is a
+# no-op. The rows that used to live here are the reason --ungated exists: it
+# reported "expected cex that did NOT fire" the moment the fix landed.
+set HWPQ_EXPECT_CEX    {}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

@@ -4,8 +4,9 @@
 # rather than invoking this directly; it handles the self-test mode and reports
 # the exit code.
 #
-# CURRENT STATUS: this proves the plumbing only. hwpq_spec.sv currently carries
-# one assert and one cover. Real properties arrive in Phase 2.
+# Proves the full property set for the ENQ_ENA=1 build: the interface
+# contract, progress and handshake, occupancy, and ordering.
+# The replace-only build is a separate run -- register_array_enq0.tcl.
 
 clear -all
 

@@ -4,7 +4,7 @@
 #
 #   formal/run.sh <module>              prove it; expect exit 0
 #   formal/run.sh --selftest <module>   break one property on purpose;
-#                                       expect exit 1 (the Phase 1 criterion)
+#                                       expect exit 1
 #   formal/run.sh --all                 every module with a tcl script
 #
 # Runs from any working directory: paths resolve against the repo root.

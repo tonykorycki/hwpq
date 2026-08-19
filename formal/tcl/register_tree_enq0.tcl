@@ -16,6 +16,8 @@ clear -all
 
 set HWPQ_SELFTEST 0
 if {[info exists ::env(HWPQ_SELFTEST)]} { set HWPQ_SELFTEST $::env(HWPQ_SELFTEST) }
+set HWPQ_UNGATED 0
+if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED) }
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
@@ -25,12 +27,19 @@ set src {
     formal/spec/hwpq_tree_aux.sv
     formal/bind/register_tree_aux_bind.sv
 }
+set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
-    analyze -sv12 -define HWPQ_SELFTEST {*}$src
-} else {
-    analyze -sv12 {*}$src
+    lappend hwpq_defs HWPQ_SELFTEST
 }
+if {$HWPQ_UNGATED} {
+    puts "### UNGATED MODE: workaround assumptions dropped; the recorded"
+    puts "###               shortcomings are expected to reproduce."
+    lappend hwpq_defs HWPQ_UNGATED
+}
+set hwpq_dflags {}
+foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
+analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # Same sizes as the ENQ_ENA=1 run; only the reset fill and the command set move.
@@ -46,7 +55,16 @@ reset ~i_RSTn
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_tree_enq0
 set HWPQ_ALLOW_BOUNDED 0
-set HWPQ_EXPECT_CEX    {}
+# Ungated runs must reproduce EXACTLY these and nothing else. If one stops
+# firing the defect was fixed and the assumption should be retired; if a new
+# one appears, something regressed. Either way the run fails and says which.
+#   F-1: same mechanism as register_array_enq0 - the sentinel idiom is duplicated
+#   verbatim across the register designs.
+if {$HWPQ_UNGATED} {
+    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss}
+} else {
+    set HWPQ_EXPECT_CEX {}
+}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

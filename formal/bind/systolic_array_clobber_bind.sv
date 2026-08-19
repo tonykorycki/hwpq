@@ -1,7 +1,10 @@
 // Attaches hwpq_systolic_clobber to systolic_array
 //
-// Bound alone, without hwpq_spec: the spec carries ASSUME_ENQ_WHEN_WREADY,
-// which forbids the very writes this run exists to study.
+// Bound alone, without hwpq_spec, and with NO assumption about when writes may
+// be issued. It used to need one: before F-8 was fixed, a caller that asserted
+// i_wrt while full corrupted IB[0], and the properties below only held for a
+// caller that honoured o_write_ready. Now they hold unconditionally, which is
+// the stronger and correct statement - a refused command is inert.
 //
 // HALF_SIZE is passed explicitly because it sizes the IB/OB ports - getting it
 // from QUEUE_SIZE independently would silently truncate if the DUT ever changed
@@ -9,13 +12,7 @@
 bind systolic_array hwpq_systolic_clobber #(
     .QUEUE_SIZE(QUEUE_SIZE),
     .DATA_WIDTH(DATA_WIDTH),
-    .HALF_SIZE (HALF_SIZE),
-`ifdef HWPQ_UNGATED
-    // run.sh --ungated: drop the workaround and reproduce the recorded defect.
-    .ASSUME_ENQ_WHEN_WREADY (1'b0)
-`else
-    .ASSUME_ENQ_WHEN_WREADY (1'b1)
-`endif
+    .HALF_SIZE (HALF_SIZE)
 ) u_clobber (
     .i_CLK        (i_CLK),
     .i_RSTn       (i_RSTn),

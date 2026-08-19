@@ -46,7 +46,25 @@ module hwpq_spec #(
     // the testbench's TB_TRACKS_FULL: a replace-only DUT with no enqueue path
     // gates nothing on fullness and reports o_write_ready = !busy. Not the same
     // question as ENQ_ENA - register_array with ENQ_ENA=0 still tracks full.
-    parameter bit HAS_FULL = 1
+    parameter bit HAS_FULL = 1,
+
+    // Assume the caller only enqueues when o_write_ready is high.
+    //
+    // The occupancy and ordering models reconstruct "the DUT accepted this
+    // command" from the matching ready. That is EXACT for the register designs,
+    // which gate acceptance on the ready they advertise - but it is a premise
+    // about the DUT, not a fact about the interface, and systolic_array breaks
+    // it: it advertises !o_write_ready at size >= QUEUE_SIZE-3 while still
+    // accepting writes until size >= QUEUE_SIZE-2 (F-7). In that one-slot window
+    // the spec scores an enqueue as refused that the DUT actually took, and the
+    // ordering asserts fail on a spec bug rather than an RTL one.
+    //
+    // Setting this restores the premise by constraining the environment instead
+    // of the model: no enqueue unless the queue says it is ready. That is the
+    // convention the simulation harness already follows - hwpq_tb_common.svh
+    // gates enqueue() on o_write_ready - so it is the library's own contract,
+    // not a fiction invented for the proof. Recorded as hole CH-5.
+    parameter bit ASSUME_ENQ_WHEN_WREADY = 1'b0
 ) (
     input var logic                  i_CLK,
     input var logic                  i_RSTn,
@@ -90,6 +108,13 @@ module hwpq_spec #(
     if (HAS_BUSY && NO_CMD_WHILE_BUSY) begin : g_no_cmd_while_busy
       am_no_cmd_while_busy : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !settled |-> !i_wrt && !i_read);
+    end
+
+    // See the parameter comment: makes the "acceptance == matching ready"
+    // premise true by construction for a DUT that does not honour it.
+    if (ENQ_ENA && ASSUME_ENQ_WHEN_WREADY) begin : g_enq_when_wready
+      am_enq_when_wready : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
+          settled && cmd_enqueue |-> o_write_ready);
     end
 
     // A replace-only build has no enqueue datapath, so a bare write is not a
@@ -165,7 +190,10 @@ module hwpq_spec #(
   generate
     // Needs both: the command has to exist, and !o_write_ready has to actually
     // mean "full" rather than "busy" or the antecedent is unreachable.
-    if (ENQ_ENA && HAS_FULL) begin : g_enq_handshake
+    // The third term: am_enq_when_wready forbids exactly this antecedent, so
+    // emitting the property under it would only leave an UNREACHABLE
+    // precondition cover - the same trap HAS_BUSY guards against above.
+    if (ENQ_ENA && HAS_FULL && !ASSUME_ENQ_WHEN_WREADY) begin : g_enq_handshake
       a_no_enq_when_full : assert property (p_at_next_settle(
           settled && !o_write_ready && cmd_enqueue, !o_write_ready));
     end

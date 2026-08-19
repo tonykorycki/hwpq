@@ -41,6 +41,15 @@ proc hwpq_plist {type statuses} {
     return $res
 }
 
+# hwpq_leaf - the bare property name out of a full Jasper path.
+#
+# Jasper reports properties as <task>::<module>.<inst>.<generate>.<name>, which
+# is DOT-separated. `file tail` splits on "/" and so returns the whole string
+# untouched -- an HWPQ_EXPECT_CEX entry could then never match anything.
+proc hwpq_leaf {p} {
+    return [lindex [split $p .] end]
+}
+
 proc hwpq_group {label items} {
     if {[llength $items] == 0} { return }
     puts "    $label ([llength $items]):"
@@ -83,13 +92,13 @@ proc hwpq_prove_and_exit {} {
     set unexpected_cex {}
     set missing_cex    {}
     foreach p $a_cex {
-        if {[lsearch -exact $HWPQ_EXPECT_CEX [file tail $p]] < 0} {
+        if {[lsearch -exact $HWPQ_EXPECT_CEX [hwpq_leaf $p]] < 0} {
             lappend unexpected_cex $p
         }
     }
     foreach want $HWPQ_EXPECT_CEX {
         set hit 0
-        foreach p $a_cex { if {[file tail $p] eq $want} { set hit 1 } }
+        foreach p $a_cex { if {[hwpq_leaf $p] eq $want} { set hit 1 } }
         if {!$hit} { lappend missing_cex $want }
     }
 

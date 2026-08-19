@@ -85,9 +85,11 @@ set all_ok [expr {$all_ok & [run_case "unexpected cex" 1 "
     $common"]}]
 
 # 3. an EXPECTED counterexample -> 0 (bug-reproduction mode)
+#    Uses a FULLY QUALIFIED property name on purpose. Jasper reports dotted
+#    paths, so a short name here would let a broken leaf-extraction pass.
 set all_ok [expr {$all_ok & [run_case "expected cex fires" 0 "
     set STUB_TABLE \[dict create \
-        {type {assert} status {cex}} {a_plumbing} \
+        {type {assert} status {cex}} {<embedded>::dut.u_spec.g_x.a_plumbing} \
         {type {cover} status {covered proven}} {c1}\]
     set HWPQ_MODULE smoke
     set HWPQ_EXPECT_CEX {a_plumbing}"]}]
@@ -95,7 +97,7 @@ set all_ok [expr {$all_ok & [run_case "expected cex fires" 0 "
 # 4. an expected counterexample that does NOT fire -> 1
 set all_ok [expr {$all_ok & [run_case "expected cex missing" 1 "
     set STUB_TABLE \[dict create \
-        {type {assert} status {proven}} {a_plumbing} \
+        {type {assert} status {proven}} {<embedded>::dut.u_spec.g_x.a_plumbing} \
         {type {cover} status {covered proven}} {c1}\]
     set HWPQ_MODULE smoke
     set HWPQ_EXPECT_CEX {a_plumbing}"]}]

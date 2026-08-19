@@ -145,7 +145,12 @@ proc hwpq_prove_and_exit {} {
     }
 
     # artifacts
-    catch { report -summary -force -result -file formal/${HWPQ_MODULE}_summary.txt }
+    # Suffix the summary in ungated mode. run.sh already suffixes the log and
+    # the project dir; without this the two modes overwrite each other's summary
+    # and the file on disk silently belongs to whichever ran last.
+    set sfx ""
+    if {[info exists ::env(HWPQ_UNGATED)] && $::env(HWPQ_UNGATED)} { set sfx "_ungated" }
+    catch { report -summary -force -result -file formal/${HWPQ_MODULE}${sfx}_summary.txt }
     catch { report -task {<embedded>} -assert -cover -summary }
 
     if {$fail} { puts "\n    RESULT: FAIL\n" ; exit 1 }

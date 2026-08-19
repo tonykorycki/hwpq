@@ -122,7 +122,7 @@ module systolic_array #(
       // Sorting logic
       for (int i = 0; i < HALF_SIZE; i++) begin  // Iterate through each element
         priority case (1'b1)
-          OB_shift[i] && OB_shift_valid[i]: begin
+          (i < HALF_SIZE-1) && OB_shift[i] && OB_shift_valid[i]: begin
             OB[i] <= OB[i+1]; 
             if ((i == (HALF_SIZE - 2) || !OB_shift_valid[i+1] || !IB_shift_to_OB[i+1] || !OB_shift[i+1] || (OB[i+2] == 0))) OB[i+1] <= MIN_VALUE;
           end
@@ -132,7 +132,7 @@ module systolic_array #(
         endcase
 
         priority case (1'b1)
-          IB_shift[i] && IB_shift_valid[i]: begin
+          (i < HALF_SIZE-1) && IB_shift[i] && IB_shift_valid[i]: begin
             // We slide this value down
             IB[i+1] <= IB[i];
             if ((i == 0 && !i_wrt) || (i > 0 && !IB_shift_valid[i-1])) IB[i] <= MIN_VALUE;
@@ -143,17 +143,21 @@ module systolic_array #(
         endcase
 
         priority case (1'b1)
-          OB_next_greater_than_OB[i] && !OB_shift_valid[i] && !IB_greater_than_OB[i]
+          (i < HALF_SIZE-1) && OB_next_greater_than_OB[i] && !OB_shift_valid[i] && !IB_greater_than_OB[i]
           && (i > 0 && !IB_greater_than_OB_next[i-1]): begin
             // If we cannot shift, we can swap
             OB[i+1] <= OB[i];
             OB[i] <= OB[i+1];
           end
 
-          IB_shift_to_OB[i]: begin
+          (i < HALF_SIZE-1) && IB_shift_to_OB[i]: begin
             // if OB is shifting while we want to swap in, we can just swap down instead
             OB[i] <= IB[i];
-            if (!(IB_shift[i-1] && IB_shift_valid[i-1])) IB[i] <= MIN_VALUE;
+            // i>0 guard: IB_shift_to_OB[0] is pinned false by its own definition
+            // below, so this arm is unreachable at i=0 and the i-1 reads never
+            // resolve. Made explicit because an out-of-range read is X in
+            // simulation but a hard elaboration error in formal.
+            if (i > 0 && !(IB_shift[i-1] && IB_shift_valid[i-1])) IB[i] <= MIN_VALUE;
           end
 
           IB_greater_than_OB[i] && !(i < (HALF_SIZE-1) && OB_shift[i] && OB_shift_valid[i]): begin
@@ -161,8 +165,15 @@ module systolic_array #(
             OB[i] <=  IB[i];
           end
 
-          IB_greater_than_OB_next[i] && (!IB_greater_than_OB[i+1])
-          && ((IB[i+1] == 0) || (IB_greater_than_OB_next[i+1]) || (IB_shift[i+1])) && IB_shift_valid[i]: begin
+          // Bounds guards below preserve the simulation semantics exactly: the
+          // gap arrays are HALF_SIZE-1 long, so [i+1] is out of range once
+          // i+1 >= HALF_SIZE-1, and [i] is out of range at i = HALF_SIZE-1.
+          // Those reads are X, and an X priority-case selector takes no branch -
+          // which is what (i < HALF_SIZE-1) and the read-as-0 terms reproduce.
+          (i < HALF_SIZE-1) && IB_greater_than_OB_next[i] && (!IB_greater_than_OB[i+1])
+          && ((IB[i+1] == 0)
+              || (i+1 < HALF_SIZE-1 && IB_greater_than_OB_next[i+1])
+              || (i+1 < HALF_SIZE-1 && IB_shift[i+1])) && IB_shift_valid[i]: begin
             // Move IB[i] to OB[i+1], and move OB[i+1] to IB[i+1]
             OB[i+1] <= IB[i];
             IB[i+1] <= OB[i+1];
@@ -179,13 +190,13 @@ module systolic_array #(
             end
           end
 
-          IB_greater_than_OB_next[i] && !IB_shift_valid[i] && !IB_greater_than_OB[i+1]: begin
+          (i < HALF_SIZE-1) && IB_greater_than_OB_next[i] && !IB_shift_valid[i] && !IB_greater_than_OB[i+1]: begin
             // If we cannot shift, we can swap
             IB[i] <= OB[i+1];
             OB[i+1] <= IB[i];
           end
 
-          IB_greater_than_IB_next[i] && !IB_shift_valid[i]
+          (i < HALF_SIZE-1) && IB_greater_than_IB_next[i] && !IB_shift_valid[i]
           && ((i == (HALF_SIZE - 2)) || (!IB_greater_than_IB_next[i+1] && !IB_greater_than_OB_next[i+1]))
           && (!IB_greater_than_OB[i+1]): begin
             // If we cannot shift, we can swap

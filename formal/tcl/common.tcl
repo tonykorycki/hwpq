@@ -5,7 +5,8 @@
 #
 #
 # CALLER CONTRACT:
-#   HWPQ_MODULE          module name, used for report filenames.       REQUIRED
+#   HWPQ_MODULE          module name, used in the verdict banner.        REQUIRED
+#   HWPQ_OUTDIR (env)    where run.sh wants artifacts; defaults to formal/
 #   HWPQ_ALLOW_BOUNDED   1 = accept bounded_proven asserts.            Default 0
 #   HWPQ_EXPECT_CEX      list of assert leaf-names that are SUPPOSED to fail.
 #                        A listed property that proves is a FAILURE; one that
@@ -145,12 +146,17 @@ proc hwpq_prove_and_exit {} {
     }
 
     # artifacts
-    # Suffix the summary in ungated mode. run.sh already suffixes the log and
-    # the project dir; without this the two modes overwrite each other's summary
-    # and the file on disk silently belongs to whichever ran last.
-    set sfx ""
-    if {[info exists ::env(HWPQ_UNGATED)] && $::env(HWPQ_UNGATED)} { set sfx "_ungated" }
-    catch { report -summary -force -result -file formal/${HWPQ_MODULE}${sfx}_summary.txt }
+    # run.sh passes the run's output directory, so the summary lands beside the
+    # log and the Jasper scratch for the same run rather than in a parallel
+    # naming scheme of its own. Falling back keeps a hand-invoked `jg -tcl ...`
+    # working outside run.sh.
+    set outdir "formal"
+    set sname  "${HWPQ_MODULE}_summary.txt"
+    if {[info exists ::env(HWPQ_OUTDIR)] && $::env(HWPQ_OUTDIR) ne ""} {
+        set outdir $::env(HWPQ_OUTDIR)
+        set sname  "summary.txt"
+    }
+    catch { report -summary -force -result -file ${outdir}/${sname} }
     catch { report -task {<embedded>} -assert -cover -summary }
 
     if {$fail} { puts "\n    RESULT: FAIL\n" ; exit 1 }

@@ -24,6 +24,10 @@
 # assumption. That makes the shortcomings a regression test rather than a
 # footnote.
 #
+# Everything a run generates - Jasper scratch, console log, property summary -
+# goes to formal/jgproject/<module>[_selftest][_ungated]/ and nowhere else, so
+# the whole lot is one gitignored tree and one directory to delete.
+#
 # Runs from any working directory: paths resolve against the repo root.
 # Requires `jg` on PATH 
 set -u
@@ -70,7 +74,16 @@ for m in "${MODULES[@]}"; do
     overall=2; continue
   fi
 
-  if [ "$UNGATED" -eq 1 ]; then log="formal/${m}_ungated.log"; else log="formal/${m}.log"; fi
+  # Everything a run generates lands in ONE directory: Jasper's scratch, the
+  # console log, and the property summary. The suffix keeps the modes apart -
+  # before it existed a --selftest run overwrote the real run's log, so the
+  # artifact on disk belonged to whichever happened to run last.
+  sfx=""
+  [ "$SELFTEST" -eq 1 ] && sfx="${sfx}_selftest"
+  [ "$UNGATED"  -eq 1 ] && sfx="${sfx}_ungated"
+  outdir="formal/jgproject/${m}${sfx}"
+  mkdir -p "$outdir"
+  log="${outdir}/run.log"
   echo "############################################################"
   if [ "$SELFTEST" -eq 1 ]; then
     echo "# SELF-TEST: ${m}   (a broken property MUST make this exit 1)"
@@ -82,21 +95,21 @@ for m in "${MODULES[@]}"; do
   fi
   echo "############################################################"
 
-  # -proj is per-module so parallel runs cannot clobber each other's scratch.
-  # The self-test flag travels in the environment: jg's option for pre-running
-  # Tcl is spelled differently across releases, $::env() is not.
+  # -proj is per-run so parallel runs cannot clobber each other's scratch.
+  # The mode flags travel in the environment: jg's option for pre-running Tcl is
+  # spelled differently across releases, $::env() is not. HWPQ_OUTDIR is how
+  # common.tcl learns where to put the summary, so the path is built once here
+  # rather than reconstructed in Tcl.
   # A separate project dir per mode: the two configurations elaborate
   # differently, and sharing scratch invites a stale-lock collision.
-  if [ "$UNGATED" -eq 1 ]; then proj="formal/jgproject_${m}_ungated"; else proj="formal/jgproject_${m}"; fi
-
   # A jg killed mid-run (Ctrl-C, a timeout, a dropped SSH session) leaves a lock
   # behind, and the next run then reports "Cannot obtain ownership of project
   # directory" -- which run.sh classifies as a proof FAILURE. That misreads as a
   # real regression and has already cost several false alarms. Clear a lock only
   # when it is from THIS host and its process is gone; a live run, or one on
   # another CEPool node, is left strictly alone.
-  if [ -d "$proj" ]; then
-    for lk in "$proj"/*.lock; do
+  if [ -d "$outdir" ]; then
+    for lk in "$outdir"/*.lock; do
       [ -e "$lk" ] || continue
       b="$(basename "$lk" .lock)"
       pid="${b##*.}"
@@ -111,8 +124,8 @@ for m in "${MODULES[@]}"; do
     done
   fi
 
-  HWPQ_SELFTEST="$SELFTEST" HWPQ_UNGATED="$UNGATED" \
-    jg -batch -tcl "$tcl" -proj "$proj" 2>&1 | tee "$log"
+  HWPQ_SELFTEST="$SELFTEST" HWPQ_UNGATED="$UNGATED" HWPQ_OUTDIR="$outdir" \
+    jg -batch -tcl "$tcl" -proj "$outdir" 2>&1 | tee "$log"
   rc="${PIPESTATUS[0]}"
 
   if [ "$SELFTEST" -eq 1 ]; then

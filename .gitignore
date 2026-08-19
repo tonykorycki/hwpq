@@ -47,9 +47,9 @@ obj_dir
 
 build/
 
-# JasperGold formal scratch
+# JasperGold formal scratch. run.sh puts EVERYTHING a run generates under
+# formal/jgproject/<module>[_selftest][_ungated]/ - Jasper's own scratch, the
+# console log, and the property summary - so this one line covers all of it.
 formal/jgproject/
-formal/jgproject_*/
-formal/*.log
-formal/*_summary.txt
+# a bare `jg` invoked from the repo root creates its own project dir
 jgproject/

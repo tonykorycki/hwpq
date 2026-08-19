@@ -169,17 +169,25 @@ module hwpq_spec #(
       settled && !o_read_ready && cmd_dequeue, !o_read_ready));
 
 
-  // For a DUT with no busy state, `settled` is constant 1. This proves everything binded correctly
-  // HWPQ_SELFTEST inverts it into a guaranteed failure. This proves the harness can report failure
+  // For a DUT with no busy state, `settled` is constant 1. Proves the bind
+  // attached and the DUT is reachable at all.
   generate
     if (!HAS_BUSY) begin : g_plumbing
-`ifdef HWPQ_SELFTEST
-      a_plumbing : assert property (@(posedge i_CLK) disable iff (!i_RSTn) !settled);
-`else
       a_plumbing : assert property (@(posedge i_CLK) disable iff (!i_RSTn) settled);
-`endif
     end
   endgenerate
+
+`ifdef HWPQ_SELFTEST
+  // Deliberately unprovable, and present in EVERY build. run.sh --selftest
+  // relies on this to show the harness can still report failure.
+  //
+  // It used to work by inverting a_plumbing, which only exists when HAS_BUSY=0 -
+  // so on a sequential module there was nothing to break, --selftest proved
+  // everything, exited 0, and reported that the harness could not report
+  // failure. Keying the check to a configuration-specific property skipped it
+  // on exactly the modules where a proof is hardest to trust.
+  a_selftest_must_fail : assert property (@(posedge i_CLK) disable iff (!i_RSTn) 1'b0);
+`endif
 
 
   // ---------------------------------------------------------------------------

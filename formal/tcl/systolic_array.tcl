@@ -60,17 +60,9 @@ reset ~i_RSTn
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        systolic_array
 set HWPQ_ALLOW_BOUNDED 0
-# Ungated runs must reproduce EXACTLY these and nothing else. If one stops
-# firing the defect was fixed and the assumption should be retired; if a new
-# one appears, something regressed. Either way the run fails and says which.
-#   F-7: without ASSUME_ENQ_WHEN_WREADY the spec's ready-based acceptance decode
-#   undercounts, because this DUT accepts writes it advertised as refused.
-#   These four fail on the MODEL, not the RTL - see F-7 in formal/README.md.
-if {$HWPQ_UNGATED} {
-    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss a_head_is_max a_head_present}
-} else {
-    set HWPQ_EXPECT_CEX {}
-}
+# No workaround assumption applies here any more. F-7 is reconciled, so the
+# spec's acceptance decode is exact and --ungated is a no-op for this config.
+set HWPQ_EXPECT_CEX    {}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

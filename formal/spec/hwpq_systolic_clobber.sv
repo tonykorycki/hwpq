@@ -16,11 +16,10 @@
 // IB slot being empty and propagates backward one cell per cycle, so how much
 // slack the queue keeps decides whether IB[0] drains in time.
 //
-// F-7 is the observation that o_write_ready stops advertising room one slot
-// before `full` stops accepting writes. The open question is whether writing
-// into that window is HARMFUL - whether it eats the margin that keeps IB[0]
-// drainable. Reading the RTL suggests it might; the sorting network is
-// intricate enough that reading is not evidence. This decides it.
+// These properties held only for a well-behaved caller until F-8 was fixed;
+// they now hold with NO assumption at all, which is the statement worth having:
+// a refused command is inert. The parameters that used to select between those
+// configurations are gone along with the defect that needed them.
 //
 // METHOD
 //
@@ -33,26 +32,7 @@
 module hwpq_systolic_clobber #(
     parameter int QUEUE_SIZE = 8,
     parameter int DATA_WIDTH = 3,
-    parameter int HALF_SIZE  = 4,
-
-    // 0 = let writes land anywhere the DUT accepts them, including the F-7
-    //     window where o_write_ready is low but `full` is not yet set.
-    // 1 = confine writes to what the queue advertises, i.e. a compliant caller.
-    // Running BOTH is the point: it separates "the F-7 window costs data" from
-    // "writes lose data even when the queue said there was room", which are
-    // very different findings.
-    parameter bit ASSUME_ENQ_WHEN_WREADY = 1'b0,
-
-    // Weaker than the above: allow writes into the F-7 window (o_write_ready
-    // low but `full` low too, so the datapath accepts them), while forbidding
-    // writes when the queue is genuinely full. Separates two effects that both
-    // need i_wrt asserted at an awkward moment:
-    //   (a) the window write itself, which the datapath accepts normally;
-    //   (b) i_wrt asserted while full, which the enqueue path at :100 refuses
-    //       but the SORTING arm at :181 acts on anyway - it writes i_data into
-    //       IB[0] with no !full guard.
-    // If this configuration proves, (a) is harmless and (b) is the real defect.
-    parameter bit ASSUME_ENQ_WHEN_NOT_FULL = 1'b0
+    parameter int HALF_SIZE  = 4
 ) (
     input var logic                  i_CLK,
     input var logic                  i_RSTn,
@@ -85,18 +65,6 @@ module hwpq_systolic_clobber #(
   // The standard quiescence convention (CH-2).
   am_no_cmd_while_busy : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       !settled |-> !i_wrt && !i_read);
-
-  generate
-    if (ASSUME_ENQ_WHEN_NOT_FULL) begin : g_enq_when_not_full
-      am_enq_when_not_full : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
-          settled && cmd_enqueue |-> !full);
-    end
-
-    if (ASSUME_ENQ_WHEN_WREADY) begin : g_enq_when_wready
-      am_enq_when_wready : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
-          settled && cmd_enqueue |-> o_write_ready);
-    end
-  endgenerate
 
   // ---------------------------------------------------------------------------
   // The tracked value: undriven, so the tool explores every choice at once.
@@ -148,17 +116,6 @@ module hwpq_systolic_clobber #(
   // The risk scenario itself: a write arrives while IB[0] holds a live value.
   c_write_onto_live_ib0 : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled && cmd_enqueue && IB[0] == tv);
-
-  // The same thing, inside the F-7 window - a write the queue advertised as
-  // refused, landing on a live IB[0]. This is the exact scenario the margin
-  // exists to prevent. If this covers AND a_no_clobber proves, the extra slot
-  // is not load-bearing for data retention.
-  generate
-    if (!ASSUME_ENQ_WHEN_WREADY) begin : g_gap_cover
-      c_gap_write_onto_live_ib0 : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
-          settled && cmd_enqueue && !o_write_ready && !full && IB[0] == tv);
-    end
-  endgenerate
 
   // Replace hits IB[0] too, and is gated on no ready at all.
   c_replace_onto_live_ib0 : cover property (@(posedge i_CLK) disable iff (!i_RSTn)

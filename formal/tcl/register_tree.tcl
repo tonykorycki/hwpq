@@ -17,6 +17,8 @@ set src {
     hwpq/register_tree/src/register_tree.sv
     formal/spec/hwpq_spec.sv
     formal/bind/register_tree_bind.sv
+    formal/spec/hwpq_tree_aux.sv
+    formal/bind/register_tree_aux_bind.sv
 }
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the plumbing property is deliberately inverted."

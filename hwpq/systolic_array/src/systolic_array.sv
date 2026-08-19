@@ -76,6 +76,13 @@ module systolic_array #(
 
   assign full  = (size >= QUEUE_SIZE - 2);
   assign empty = (size <= 0);
+  // Does this cycle actually write IB[0]? The enqueue datapath below refuses a
+  // write when full, but the sorting network used to react to raw i_wrt and so
+  // performed the write's side effects anyway - injecting i_data into IB[0] and
+  // suppressing the clear that would have vacated it. A refused command has to
+  // be inert. Mirrors the datapath exactly: replace writes IB[0] regardless of
+  // full, a bare enqueue only when !full.
+  wire writing_ib0 = i_wrt && (i_read || !full);
   assign o_data  = OB[0];
   // we need 2 empty spaces for the systolic to work, and we cannot write/read right after a read
   assign o_write_ready = !(size >= (QUEUE_SIZE - 3)) && (o_data != MIN_VALUE || empty); 
@@ -135,7 +142,7 @@ module systolic_array #(
           (i < HALF_SIZE-1) && IB_shift[i] && IB_shift_valid[i]: begin
             // We slide this value down
             IB[i+1] <= IB[i];
-            if ((i == 0 && !i_wrt) || (i > 0 && !IB_shift_valid[i-1])) IB[i] <= MIN_VALUE;
+            if ((i == 0 && !writing_ib0) || (i > 0 && !IB_shift_valid[i-1])) IB[i] <= MIN_VALUE;
           end
           default: begin
             // No action needed
@@ -178,14 +185,14 @@ module systolic_array #(
             OB[i+1] <= IB[i];
             IB[i+1] <= OB[i+1];
             // if we are also writing this cycle, we need to replace the value with i_data or OB[0] is i_data > OB[0]
-            if (i == 0 && i_wrt) begin
+            if (i == 0 && writing_ib0) begin
               if (i_data > OB[0] && !i_read) begin
                 IB[i] <= OB[0];
               end else begin
                 IB[i] <= i_data;
               end
             end
-            if ((i > 0 && (IB_shift_to_OB[i-1] || IB_greater_than_OB[i-1])) || (i == 0 && !i_wrt)) begin
+            if ((i > 0 && (IB_shift_to_OB[i-1] || IB_greater_than_OB[i-1])) || (i == 0 && !writing_ib0)) begin
               IB[i] <= MIN_VALUE;
             end
           end

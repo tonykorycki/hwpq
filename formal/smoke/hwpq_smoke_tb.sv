@@ -36,8 +36,21 @@ module hwpq_smoke_tb;
     return DATA_WIDTH'($urandom_range(1, (1 << DATA_WIDTH) - 2));
   endfunction
 
+  // The spec's assumptions are ENVIRONMENT CONSTRAINTS. Jasper honours them by
+  // never exploring a state that violates one; Verilator has no constraint
+  // solver and compiles `assume property` as an assert, so this driver has to
+  // satisfy them itself or checks 2 and 3 fail for the wrong reason.
+  //
+  // Two apply to the register_array/ENQ_ENA=1 configuration bound here:
+  //   am_payload_legal      -- i_data is never a reserved sentinel, so i_data is
+  //                            held at a legal value even between commands
+  //                            rather than parked at '0.
+  //   am_tv_legal/_stable   -- tv is undriven on purpose (a free variable), and
+  //                            a floating tv reads as '0, which am_tv_legal
+  //                            excludes. Pin it to one legal, constant value.
   initial begin
-    i_RSTn = 0; i_wrt = 0; i_read = 0; i_data = '0;
+    i_RSTn = 0; i_wrt = 0; i_read = 0; i_data = legal_payload();
+    force u_dut.u_spec.tv = DATA_WIDTH'(3);
     repeat (2) @(negedge i_CLK);
     i_RSTn = 1;
     @(negedge i_CLK);
@@ -53,7 +66,7 @@ module hwpq_smoke_tb;
         3: begin i_wrt = 1; i_read = 1; end   // replace
       endcase
       @(negedge i_CLK);
-      i_wrt = 0; i_read = 0; i_data = '0;
+      i_wrt = 0; i_read = 0; i_data = legal_payload();
     end
 
     $display("smoke: %0d operations driven, no assertion failures.", N_OPS);

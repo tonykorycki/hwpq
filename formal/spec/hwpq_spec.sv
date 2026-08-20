@@ -326,7 +326,12 @@ module hwpq_spec #(
   // the properties hold for all of them. ($anyconst would say this directly but
   // is not accepted by every Jasper parser; an undriven net plus a stability
   // assumption is the portable spelling.)
+  // verilator lint_off UNDRIVEN
+  // Undriven is the POINT (see above), so Verilator's UNDRIVEN warning is
+  // expected here and only here. Waived at the declaration rather than with a
+  // -Wno flag on the command line, so the rest of the spec is still checked.
   logic [DATA_WIDTH-1:0] tv;
+  // verilator lint_on UNDRIVEN
 
   am_tv_stable : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       ##1 $stable(tv));

@@ -10,13 +10,27 @@
 // CLIMB_CYCLES and SINK_CYCLES; this design uses one uniform SETTLE_CYCLES =
 // TREE_DEPTH (:48), which is deeper. Reading it from the DUT's own localparam
 // means the difference is picked up automatically instead of being transcribed.
+//
+// ASSUME_FILL_FIRST is wired the same way register_array_bind.sv and
+// register_tree_bind.sv wire it. hwpq_spec.sv:152 guards the assumption on
+// `!ENQ_ENA`, so it is inert in the ENQ_ENA=1 run above and this changes
+// nothing there; it exists for the replace-only build, where without it F-1
+// reproduces. Without the `ifdef the parameter would default to 1 and
+// --ungated would silently leave the assumption ON -- green while checking
+// nothing, which is the failure mode F-5 describes.
 bind register_tree_pipelined hwpq_spec #(
     .QUEUE_SIZE (QUEUE_SIZE),
     .DATA_WIDTH (DATA_WIDTH),
     .ENQ_ENA    (ENQ_ENA),
     .HAS_BUSY   (1'b1),
     .MAX_SETTLE (SETTLE_CYCLES),
-    .HAS_FULL   (1'b1)
+    .HAS_FULL   (1'b1),
+`ifdef HWPQ_UNGATED
+    // run.sh --ungated: drop the workaround and reproduce the recorded defect.
+    .ASSUME_FILL_FIRST (1'b0)
+`else
+    .ASSUME_FILL_FIRST (1'b1)
+`endif
 ) u_spec (
     .i_CLK        (i_CLK),
     .i_RSTn       (i_RSTn),

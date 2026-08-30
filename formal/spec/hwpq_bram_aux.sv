@@ -54,6 +54,10 @@ module hwpq_bram_aux #(
     input var logic                  o_read_ready,
     input var logic [DATA_WIDTH-1:0] o_data,
 
+    // the top two levels are registers, not memory
+    input var logic [DATA_WIDTH-1:0] level_0,
+    input var logic [DATA_WIDTH-1:0] level_1 [2],
+
     // the BRAM level, reached hierarchically by the bind. gen_bram runs
     // i = 2 .. TREE_DEPTH-1, so at QUEUE_SIZE=7 there is exactly one.
     input var logic [DATA_WIDTH-1:0] ram_l2 [NODES_NEEDED-1:0]
@@ -185,6 +189,41 @@ module hwpq_bram_aux #(
   // ready/accept finding below.
   c_root_before_sift : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       root_done && !sift_done);
+
+  // ---------------------------------------------------------------------------
+  // Is the DESIGN wrong, or is the spec's model of it wrong?
+  // ---------------------------------------------------------------------------
+  //
+  // Six portable-spec properties fail together: a_occ_bounded, a_occ_empty_agrees,
+  // a_no_loss, a_head_is_max, a_head_present and a_head_not_placeholder. That is
+  // either one cause or six, and the spec cannot tell which, because everything it
+  // knows comes through the same six ports.
+  //
+  // F-7 is the precedent: four spec asserts failed on systolic_array and the cause
+  // turned out to be the SPEC undercounting, not the design misbehaving. The way
+  // that was settled was to state the same claims white-box, against the design's
+  // own signals, and see which version survives.
+
+  // Occupancy, asked of the design's own counter rather than of the spec's model.
+  // If this proves while a_occ_bounded fails, the spec is miscounting this
+  // module's replaces -- the prime suspect being the o_data == '1 eviction arm
+  // (:420), which has no full guard and which the spec scores as an insert every
+  // time a placeholder reaches the root.
+  a_queue_size_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      sift_done |-> queue_size <= QUEUE_SIZE);
+
+  // The heap property at the top of the tree, stated locally. a_head_is_max is a
+  // claim about the whole queue reconstructed from the interface; this is the
+  // design's own invariant. If this proves while a_head_is_max fails, the ordering
+  // is sound and the spec's reconstruction is not.
+  a_root_outranks_children : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      sift_done |-> (level_0 >= level_1[0]) && (level_0 >= level_1[1]));
+
+  // Can the root still hold a placeholder while the queue reports occupancy? If
+  // so that alone explains a_head_not_placeholder, and it is this module's version
+  // of F-1 rather than a new defect.
+  c_root_placeholder_nonempty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      sift_done && (queue_size > 0) && (level_0 == '1));
 
   // ---------------------------------------------------------------------------
   // The advertised read the module then refuses

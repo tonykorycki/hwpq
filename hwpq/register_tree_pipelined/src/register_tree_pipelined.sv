@@ -18,6 +18,13 @@
   Outputs: o_write_ready - High when the queue has room to accept a write
            o_read_ready - High when the queue holds data available to read
            o_data - Output data from the highest priority element
+  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
+           slot and the dequeue mechanism (write it into the head and let the
+           sort network sink it); all-ones is the max-priority placeholder an
+           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
+           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
+           so one rule covers the whole library. Behaviour when they ARE driven
+           is outside the supported input range.
 *******************************************************************************/
 
 module register_tree_pipelined #(

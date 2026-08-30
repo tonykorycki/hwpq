@@ -53,3 +53,13 @@ build/
 formal/jgproject/
 # a bare `jg` invoked from the repo root creates its own project dir
 jgproject/
+# Xcelium. xrun is the only simulator on CEPool - iverilog and verilator are not
+# installed there - so running the shared testbenches drops these in whatever
+# directory xrun was invoked from, which is usually the repo root.
+xcelium.d/
+xrun.log
+xrun.history
+xrun.key
+INCA_libs/
+.simvision/
+waves.shm/

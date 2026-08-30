@@ -71,6 +71,8 @@ bind hwpq_rst_bram_tree_pipelined hwpq_bram_aux #(
     .o_write_ready(o_write_ready),
     .o_read_ready (o_read_ready),
     .o_data       (o_data),
+    .level_0      (u_dut.level_0),
+    .level_1      (u_dut.level_1),
     .ram_l2       (u_dut.gen_bram[2].bram_inst.ram)
 );
 

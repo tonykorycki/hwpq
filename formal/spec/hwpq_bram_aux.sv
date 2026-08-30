@@ -235,6 +235,69 @@ module hwpq_bram_aux #(
       sift_done && (queue_size == QUEUE_SIZE) && (level_0 == '1));
 
   // ---------------------------------------------------------------------------
+  // Conservation -- which side of the disagreement is wrong
+  // ---------------------------------------------------------------------------
+  //
+  // c_placeholder_at_capacity is reachable and a_queue_size_bounded proves, so the
+  // counter and the contents disagree without the counter ever exceeding its
+  // bound. That leaves two candidates and the covers cannot separate them: either
+  // the sift network duplicates or drops a node, or the counter moves when the
+  // contents do not. These two properties decide it by direction.
+  //
+  // Both sentinels mark a free slot -- '1 is the reset placeholder and '0 is what
+  // DEQUEUE writes into the root (:410) -- and neither is a legal payload
+  // (am_payload_legal), so the node count holding real data is exactly QUEUE_SIZE
+  // minus the free ones. At TREE_DEPTH=3 the tree is level_0, level_1[0..1] and
+  // four level-2 nodes.
+  localparam int L2_NODES = 2 ** (TREE_DEPTH - 1);
+
+  logic [3:0] occupied;
+  always_comb begin
+    occupied = '0;
+    if (level_0    != '1 && level_0    != '0) occupied = occupied + 1;
+    if (level_1[0] != '1 && level_1[0] != '0) occupied = occupied + 1;
+    if (level_1[1] != '1 && level_1[1] != '0) occupied = occupied + 1;
+    for (int k = 0; k < L2_NODES; k++)
+      if (ram_l2[k] != '1 && ram_l2[k] != '0) occupied = occupied + 1;
+  end
+
+  // SAMPLING POINT. Not sift_done, which is a cycle too early to read the tree.
+  // addr/din/we are registered from their next_* forms (:264-268), so a level-2
+  // write reaches the memory two cycles after WRITE_MEM, while level_0 and
+  // level_1 land after one -- and sift_done, registered the same way, rises in
+  // between. Sampled on sift_done alone both properties below fail in BOTH
+  // directions at 13 and 15 cycles, which is the register/memory skew and not a
+  // defect. Three consecutive quiet cycles put every write in the memory.
+  // Delayed explicitly rather than with $past, which needs a clocking context a
+  // continuous assign does not have (VERI-1841).
+  logic sift_done_d1, sift_done_d2;
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin
+    if (!i_RSTn) begin
+      sift_done_d1 <= 1'b0;
+      sift_done_d2 <= 1'b0;
+    end else begin
+      sift_done_d1 <= sift_done;
+      sift_done_d2 <= sift_done_d1;
+    end
+  end
+  wire quiesced = sift_done && sift_done_d1 && sift_done_d2;
+
+  // Vacuity guard: the window has to be reachable with the queue non-trivial, or
+  // both properties below prove by never being evaluated.
+  c_quiesced_nonempty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      quiesced && (queue_size > 1));
+
+  // The counter claims more elements than the tree holds: data was dropped by the
+  // sift, or an increment fired without an insert.
+  a_size_not_overstated : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      quiesced |-> queue_size <= occupied);
+
+  // The tree holds more elements than the counter claims: the sift duplicated a
+  // node, or an insert fired without an increment.
+  a_size_not_understated : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      quiesced |-> queue_size >= occupied);
+
+  // ---------------------------------------------------------------------------
   // The advertised read the module then refuses
   // ---------------------------------------------------------------------------
   //

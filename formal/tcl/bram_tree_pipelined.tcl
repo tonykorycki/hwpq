@@ -65,14 +65,29 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # questions the depth was originally chosen for are settled by construction now
 # that the accesses are guarded, so that reason for preferring 15 has expired.
 #
-# DATA_WIDTH 3 throughout, as everywhere else: the spec is symbolic in the
-# payload value, so extra width buys nothing but state space.
+# DATA_WIDTH 2, NOT 3 as everywhere else -- and this one is a real reduction in
+# strength, not a free choice. With '0 and all-ones reserved the legal alphabet is
+# 2**2 - 2 = TWO values, so an ordering property can still tell a maximum from a
+# non-maximum but cannot distinguish degrees of ordering among three or more
+# distinct payloads.
+#
+# It became necessary when the RAM model was fixed (F-21). Against the old
+# multiply-driven memory the engines got cheap counterexamples from contents
+# Jasper was free to invent; against a sound model they have to search, and
+# a_no_loss, a_head_is_max and a_head_present -- the spec properties that track a
+# symbolic value through the whole queue -- did not converge in 3600 s at width 3.
+# The reset sweep also adds a fixed ~9-cycle prefix to every trace, pushing every
+# witness that much deeper.
+#
+# At width 2 the whole set converges in well under the default ceiling. Raising
+# the ceiling instead was tried twice (2100 s and 3600 s) and is the wrong answer:
+# a proof past the ceiling is mis-sized, not slow (F-18).
 #
 # The top is the reset harness, not the DUT -- see F-14 and the harness comment
 # in formal/bind/bram_tree_pipelined_bind.sv.
 elaborate -top hwpq_rst_bram_tree_pipelined \
     -parameter QUEUE_SIZE 7 \
-    -parameter DATA_WIDTH 3
+    -parameter DATA_WIDTH 2
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK

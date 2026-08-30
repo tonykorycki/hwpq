@@ -195,8 +195,13 @@ module hwpq_bram_aux #(
   c_occupancy_grows : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 1));
 
+  // The window is 20, not 6. A dequeue on this module takes 6 to 18 cycles
+  // (simulation measures min 6, mean 9.5, max 18), so 6 cannot span one. It was
+  // nonetheless REACHABLE until the RAM model was fixed, because a multiply-driven
+  // memory let queue_size move along paths the real design has not got -- see
+  // F-21. The bound was measured against that model and inherited its error.
   c_occupancy_shrinks : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
-      sift_done && (queue_size > 1) ##[1:6] (sift_done && (queue_size == 1)));
+      sift_done && (queue_size > 1) ##[1:20] (sift_done && (queue_size == 1)));
 
   // root_done really does lead sift_done, which is the premise of the
   // ready/accept finding below.
@@ -239,13 +244,13 @@ module hwpq_bram_aux #(
   c_root_placeholder_nonempty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 0) && (level_0 == '1));
 
-  // THIS is the anomalous state: every placeholder should have been evicted by the
-  // time the queue is full, so the root should hold real data. If it is reachable,
-  // the counter and the contents disagree -- and the next question is whether the
-  // cause is a broken heap or a placeholder counted twice, which this does not
-  // decide.
-  c_placeholder_at_capacity : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
-      sift_done && (queue_size == QUEUE_SIZE) && (level_0 == '1));
+  // Every placeholder has been evicted by the time the queue is full, so the root
+  // holds real data there. This was a COVER while the state looked reachable, and
+  // it was -- but only against the multiply-driven RAM model, which let Jasper
+  // choose memory contents (F-21). On a sound model the state cannot occur, so the
+  // knowledge is kept as the invariant it actually is rather than deleted.
+  a_no_placeholder_at_capacity : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      sift_done && (queue_size == QUEUE_SIZE) |-> level_0 != '1);
 
   // ---------------------------------------------------------------------------
   // Conservation -- which side of the disagreement is wrong

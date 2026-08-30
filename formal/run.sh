@@ -9,6 +9,9 @@
 #                                       reproduce the recorded shortcomings;
 #                                       expect exit 0 (see below)
 #   formal/run.sh --all                 every module with a tcl script
+#   formal/run.sh --timeout <secs> ...  wall-clock ceiling per configuration
+#                                       (default 1800; a run that exceeds it is
+#                                       mis-sized, not merely slow)
 #
 # GATED vs UNGATED
 #
@@ -40,10 +43,20 @@ SELFTEST=0
 UNGATED=0
 MODULES=()
 
+# Wall-clock ceiling per configuration, seconds. A proof that has not finished by
+# now is not going to: these runs are dominated by finding cover witnesses, and a
+# cover whose witness is hundreds of cycles deep does not converge at all rather
+# than converging slowly. Without a ceiling that failure mode is silent -- one
+# mis-sized configuration ran 4.7 hours and wrote a 212 MB log before anyone
+# noticed it was not making progress. 1800 s is roughly 6x the slowest run that
+# does converge (register_tree, 281 s). Override with --timeout <seconds>.
+TIMEOUT="${HWPQ_TIMEOUT:-1800}"
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --selftest) SELFTEST=1 ;;
     --ungated)  UNGATED=1 ;;
+    --timeout)  shift; TIMEOUT="$1" ;;
     --all)      for f in formal/tcl/*.tcl; do
                   b="$(basename "$f" .tcl)"
                   [ "$b" = "common" ] || MODULES+=("$b")
@@ -125,8 +138,19 @@ for m in "${MODULES[@]}"; do
   fi
 
   HWPQ_SELFTEST="$SELFTEST" HWPQ_UNGATED="$UNGATED" HWPQ_OUTDIR="$outdir" \
+    timeout --signal=TERM --kill-after=30 "$TIMEOUT" \
     jg -batch -tcl "$tcl" -proj "$outdir" 2>&1 | tee "$log"
   rc="${PIPESTATUS[0]}"
+
+  # 124 is timeout(1) reporting that it had to kill the run.
+  if [ "$rc" -eq 124 ]; then
+    echo "==> ${m}: TIMEOUT after ${TIMEOUT}s -- the proof did not converge." >&2
+    echo "    This is a sizing problem, not a proof failure. Check the cover set" >&2
+    echo "    for a witness that is hundreds of cycles deep, and shrink" >&2
+    echo "    QUEUE_SIZE before raising --timeout." >&2
+    overall=1
+    continue
+  fi
 
   if [ "$SELFTEST" -eq 1 ]; then
     if [ "$rc" -eq 1 ]; then

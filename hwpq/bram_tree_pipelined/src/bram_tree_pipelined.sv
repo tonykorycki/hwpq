@@ -100,6 +100,18 @@ module bram_tree_pipelined #(
   logic sift_done, next_sift_done;  // whole walk finished - may accept a command
   logic root_done, next_root_done;  // root written back - o_data is trustworthy
   logic cmd_dequeue, cmd_replace;
+  logic accept_ok;                  // quiescent and initialised: may take a command
+
+  // Reset fill. The BRAMs have no reset port, and the `initial` block in
+  // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up value
+  // and a formal tool ignores it outright. So nothing restored the all-ones
+  // placeholder fill: a reset arriving with data in the queue cleared the
+  // registers and left the memory holding stale nodes behind a queue_size of 0.
+  // FILL_LAST is one past the last address because addr/din/we are registered, so
+  // the write issued at NODES_NEEDED-1 does not commit until the cycle after.
+  localparam integer FILL_LAST = NODES_NEEDED + 1;
+  logic filling;
+  logic [$clog2(FILL_LAST+1)-1:0] fill_cnt;
   logic [DATA_WIDTH-1:0] cmd_data;   // command payload latched at accept
 
   // integers for iteration
@@ -424,6 +436,17 @@ module bram_tree_pipelined #(
       default: begin
       end
     endcase
+
+    // The fill overrides the walk's port driving. It cannot collide with it: no
+    // command is accepted while `filling`, so no walk is in flight.
+    if (filling) begin
+      for (lvl_comb = 2; lvl_comb < TREE_DEPTH; lvl_comb++) begin
+        next_addr_a[lvl_comb] = fill_cnt[ADDRESS_WIDTH:0];
+        next_din_a[lvl_comb]  = '1;
+        next_we_a[lvl_comb]   = (fill_cnt < NODES_NEEDED[$bits(fill_cnt)-1:0]);
+        next_we_b[lvl_comb]   = 1'b0;
+      end
+    end
   end
 
   //-------------------------------------------------------------------------
@@ -461,6 +484,21 @@ module bram_tree_pipelined #(
     end
   end
 
+  //-------------------------------------------------------------------------
+  // Reset fill sequencer
+  //-------------------------------------------------------------------------
+  // Runs after every reset, not just the first. No command is accepted while it
+  // runs, so it cannot race the sift walk.
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin : fill_seq
+    if (!i_RSTn) begin
+      filling  <= 1'b1;
+      fill_cnt <= '0;
+    end else if (filling) begin
+      if (fill_cnt == FILL_LAST[$bits(fill_cnt)-1:0]) filling <= 1'b0;
+      else                                            fill_cnt <= fill_cnt + 1'b1;
+    end
+  end
+
   // Sift-down completion detector
   
   //   root_done -- the root compare-swap has been written back, so level_0 now
@@ -495,8 +533,14 @@ module bram_tree_pipelined #(
     end
   end
 
-  assign cmd_dequeue = !i_wrt && i_read && sift_done && (queue_size != 0);
-  assign cmd_replace = i_wrt && i_read && sift_done;
+  // "May accept a command": quiescent AND past the reset fill. One notion, used by
+  // both the ready ports and the command decode, so the two cannot drift apart --
+  // that gap is the defect F-7 recorded on systolic_array and the one fixed here
+  // when o_read_ready was gated on root_done.
+  assign accept_ok = sift_done && !filling;
+
+  assign cmd_dequeue = !i_wrt && i_read && accept_ok && (queue_size != 0);
+  assign cmd_replace = i_wrt && i_read && accept_ok;
 
   // The replace state does not execute until the cycle after the command is accepted, so sampling i_data there would read
   // whatever the master happens to be driving one cycle later.  Every other queue in this repo captures i_data in the same cycle, 
@@ -512,7 +556,7 @@ module bram_tree_pipelined #(
   //-------------------------------------------------------------------------
   // Assignments for status and output.
   //-------------------------------------------------------------------------
-  assign o_write_ready = sift_done;
+  assign o_write_ready = accept_ok;
   // root_done rises on the ROOT write-back, the first of the walk; sift_done only
   // when the walk terminates, up to TREE_DEPTH-1 levels and ~4 cycles per level
   // later. Advertising a read on root_done meant the module offered a dequeue it
@@ -521,7 +565,7 @@ module bram_tree_pipelined #(
   // Gating on sift_done costs nothing: no command could be accepted inside that
   // window anyway. The only thing lost is an early data-valid hint, and the
   // six-port interface gives no way for a caller to consume one.
-  assign o_read_ready  = !(queue_size == 0) && sift_done;
+  assign o_read_ready  = !(queue_size == 0) && accept_ok;
   assign o_data  = level_0;
 
 endmodule

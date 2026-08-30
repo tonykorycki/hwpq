@@ -303,8 +303,14 @@ module bram_tree_pipelined #(
           next_addr_b[2] = 2 * parent_idx + 1;
         end else if (parent_lvl > 'd1) begin
           next_addr_a[parent_lvl]   = parent_idx;
-          next_addr_a[parent_lvl+1] = 2 * parent_idx;
-          next_addr_b[parent_lvl+1] = 2 * parent_idx + 1;
+          // The per-level arrays are [2:TREE_DEPTH-1], so [parent_lvl+1] is out
+          // of range at the deepest level -- where there are no children to
+          // address anyway. Simulation discarded these writes silently; the
+          // guard says so.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_addr_a[parent_lvl+1] = 2 * parent_idx;
+            next_addr_b[parent_lvl+1] = 2 * parent_idx + 1;
+          end
         end
       end
 
@@ -319,8 +325,18 @@ module bram_tree_pipelined #(
           next_comp_right_child_in = dout_b[2];
         end else if (parent_lvl > 'd1) begin
           next_comp_parent_in = dout_a[parent_lvl];
-          next_comp_left_child_in = dout_a[parent_lvl+1];
-          next_comp_right_child_in = dout_b[parent_lvl+1];
+          // At the deepest level there are no children and dout_*[parent_lvl+1]
+          // is out of range, returning X. Every downstream compare then went X,
+          // no branch was taken, and the walk terminated by accident. Feeding
+          // the minimum makes that same outcome explicit and well defined: the
+          // parent outranks both absent children, so no swap is possible.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_comp_left_child_in = dout_a[parent_lvl+1];
+            next_comp_right_child_in = dout_b[parent_lvl+1];
+          end else begin
+            next_comp_left_child_in = '0;
+            next_comp_right_child_in = '0;
+          end
         end
       end
 
@@ -359,8 +375,12 @@ module bram_tree_pipelined #(
           next_we_b[2] = 1'b1;
         end else if (parent_lvl > 'd1) begin
           next_din_a[parent_lvl]   = comp_parent_out;
-          next_din_a[parent_lvl+1] = comp_left_child_out;
-          next_din_b[parent_lvl+1] = comp_right_child_out;
+          // The write ENABLES for the deepest level are already cleared below;
+          // these data assignments were not, and index out of range there.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_din_a[parent_lvl+1] = comp_left_child_out;
+            next_din_b[parent_lvl+1] = comp_right_child_out;
+          end
           // find where the next parent index is
           if (comp_left_child_out != comp_left_child_in) begin
             next_parent_lvl = parent_lvl + 1;

@@ -445,7 +445,13 @@ module bram_tree_pipelined #(
     if (cmd_dequeue) begin
       next_queue_size = queue_size - 1; // cmd_dequeue is gated on !empty so this cannot underflow
     end else if (cmd_replace) begin
-      if (o_data == '1) begin //special case for following a reset, we need to replace all the values in
+      // The full guard is load-bearing. o_data == '1 means the root still holds a
+      // placeholder, which is normally the fill phase -- but the root can hold one
+      // while the queue is already occupied, so without the guard a replace in
+      // that state counts an insert the queue has no room for and queue_size runs
+      // past QUEUE_SIZE. The enqueue and dequeue arms were always guarded; this
+      // one was not.
+      if (o_data == '1 && queue_size < QUEUE_SIZE) begin //special case for following a reset, we need to replace all the values in
         next_queue_size = queue_size + 1;
       end else if (queue_size == 0 && i_data != 0) begin  // this would be a special case for replace, function as enqueue
         next_queue_size = queue_size + 1;

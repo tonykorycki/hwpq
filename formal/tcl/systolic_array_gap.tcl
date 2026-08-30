@@ -40,13 +40,13 @@ foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
 analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
-elaborate -top systolic_array \
+elaborate -top hwpq_rst_systolic_array \
     -parameter QUEUE_SIZE 8 \
     -parameter DATA_WIDTH 3
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        systolic_array_gap

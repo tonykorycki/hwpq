@@ -49,13 +49,13 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # of HALF_SIZE = QUEUE_SIZE/2 each. It must also leave room for the shifting
 # network's slack slots, which cost 3 of the nominal size - so 8 is the smallest
 # value with any usable capacity at all (effective capacity 5).
-elaborate -top systolic_array \
+elaborate -top hwpq_rst_systolic_array \
     -parameter QUEUE_SIZE 8 \
     -parameter DATA_WIDTH 3
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        systolic_array

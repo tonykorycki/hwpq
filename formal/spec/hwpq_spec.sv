@@ -417,6 +417,14 @@ module hwpq_spec #(
   // if this comes back unreachable the design cannot move and every `proven` above it is worthless
   c_plumbing_alive : cover property (@(posedge i_CLK) disable iff (!i_RSTn) o_read_ready);
 
+  // Is a SECOND reset in scope? Deliberately NOT disabled on !i_RSTn - the point
+  // is to witness the low phase. If this is ever unreachable, the reset harness
+  // is not in place and every property here describes the post-first-reset run
+  // only, with any mid-operation-reset defect invisible.
+  c_reset_reasserted : cover property (@(posedge i_CLK)
+      i_RSTn ##1 !i_RSTn ##1 i_RSTn);
+
+
   generate
     if (ENQ_ENA) begin : g_enq_covers
       c_enqueue_fires : cover property (@(posedge i_CLK) disable iff (!i_RSTn)

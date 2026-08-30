@@ -38,14 +38,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # QUEUE_SIZE must be EVEN: the design pairs elements
 # (PAIR_COUNT = QUEUE_SIZE/2, :41).
-elaborate -top register_array_pipelined \
+elaborate -top hwpq_rst_register_array_pipelined \
     -parameter QUEUE_SIZE 4 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    1
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_array_pipelined

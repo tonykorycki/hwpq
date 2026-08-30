@@ -136,6 +136,18 @@ module hwpq_spec #(
     if (!ENQ_ENA) begin : g_replace_only
       am_no_enqueue_cmd : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !cmd_enqueue);
+
+      // The head must never be one of the all-ones placeholders the build resets
+      // into. A replace-only queue boots full of them with size 0, and a payload
+      // sorts BELOW them, so during the fill phase the queue advertises as its
+      // maximum a value the caller never inserted - F-1's headline symptom.
+      //
+      // Nothing else here catches it. a_head_is_max passes throughout, because
+      // all-ones genuinely does outrank everything resident, and the occupancy
+      // properties catch only the downstream consequence. Interface-only, so it
+      // stays portable across every replace-only build.
+      a_head_not_placeholder : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+          settled && o_read_ready |-> o_data != '1);
     end
 
     // The initialisation convention, as an assumption: do not read from a

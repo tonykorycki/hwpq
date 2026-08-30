@@ -69,10 +69,13 @@ set HWPQ_ALLOW_BOUNDED 0
 # one appears, something regressed. Either way the run fails and says which.
 #   F-1: same mechanism as register_tree_enq0 -- the sentinel idiom is
 #   duplicated verbatim across the register designs.
+#   F-1 again, at the port: the queue advertises a placeholder as its maximum.
+#   Reachable in 2 cycles and NOT scoped out by ASSUME_FILL_FIRST, which forbids
+#   the dequeue rather than the exposure - so this one is expected in both modes.
 if {$HWPQ_UNGATED} {
-    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss}
+    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss a_head_not_placeholder}
 } else {
-    set HWPQ_EXPECT_CEX {}
+    set HWPQ_EXPECT_CEX {a_head_not_placeholder}
 }
 
 source formal/tcl/common.tcl

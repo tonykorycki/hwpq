@@ -57,14 +57,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # ENQ_ENA 1 selects the '0 reset fill. The ENQ_ENA=0 build resets the array to
 # all-ones instead (register_array.sv:56-62) and is a SEPARATE run, not a
 # variant
-elaborate -top register_array \
+elaborate -top hwpq_rst_register_array \
     -parameter QUEUE_SIZE 4 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    1
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_array

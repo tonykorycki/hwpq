@@ -81,8 +81,19 @@ module register_array #(
   // A replace-only build resets physically full of '1 placeholders while size resets to
   // 0, so !empty alone advertises retrievable data during the fill phase, when the head
   // is still a placeholder the caller never inserted (F-1). Gate on the head being a
-  // real element instead. The ENQ_ENA term constant-folds the comparator away in
-  // enqueue-capable builds, which never seat a placeholder at the head.
+  // real element instead.
+  //
+  // This ENFORCES the fill-before-read contract rather than merely documenting it.
+  // `dequeue` is derived from o_read_ready, so a read attempted during the fill phase
+  // is now inert instead of popping a placeholder and decrementing size. Callers that
+  // already honour the contract see no change, and every testbench in the repo does:
+  // the shared body fills with replace_init, which drives {i_wrt,i_read}=2'b11 and
+  // never consults o_read_ready. `settled` is carried by o_write_ready throughout the
+  // fill and hands back to o_read_ready exactly when the last placeholder leaves the
+  // head, since o_write_ready only drops once size reaches QUEUE_SIZE.
+  //
+  // The ENQ_ENA term constant-folds the comparator away in enqueue-capable builds,
+  // which never seat a placeholder at the head.
   assign o_read_ready = !empty && (ENQ_ENA || o_data != '1);
   assign o_data = queue[0];
 

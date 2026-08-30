@@ -219,11 +219,20 @@ module hwpq_bram_aux #(
   a_root_outranks_children : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done |-> (level_0 >= level_1[0]) && (level_0 >= level_1[1]));
 
-  // Can the root still hold a placeholder while the queue reports occupancy? If
-  // so that alone explains a_head_not_placeholder, and it is this module's version
-  // of F-1 rather than a new defect.
+  // A placeholder at the root is the ORDINARY fill mechanism -- all-ones is the
+  // maximum, so it floats to the root and each replace evicts one. This cover
+  // therefore fires on every normal fill and proves nothing on its own. It is kept
+  // only as the baseline for the one below it.
   c_root_placeholder_nonempty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 0) && (level_0 == '1));
+
+  // THIS is the anomalous state: every placeholder should have been evicted by the
+  // time the queue is full, so the root should hold real data. If it is reachable,
+  // the counter and the contents disagree -- and the next question is whether the
+  // cause is a broken heap or a placeholder counted twice, which this does not
+  // decide.
+  c_placeholder_at_capacity : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      sift_done && (queue_size == QUEUE_SIZE) && (level_0 == '1));
 
   // ---------------------------------------------------------------------------
   // The advertised read the module then refuses

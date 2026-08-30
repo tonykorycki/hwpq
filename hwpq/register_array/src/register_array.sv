@@ -71,7 +71,12 @@ module register_array #(
 
   // head valid every cycle since queue_operation folds the command into stage1
   assign o_write_ready = !full;
-  assign o_read_ready = !empty;
+  // A replace-only build resets physically full of '1 placeholders while size resets to
+  // 0, so !empty alone advertises retrievable data during the fill phase, when the head
+  // is still a placeholder the caller never inserted (F-1). Gate on the head being a
+  // real element instead. The ENQ_ENA term constant-folds the comparator away in
+  // enqueue-capable builds, which never seat a placeholder at the head.
+  assign o_read_ready = !empty && (ENQ_ENA || o_data != '1);
   assign o_data = queue[0];
 
   always_ff @(posedge i_CLK or negedge i_RSTn) begin

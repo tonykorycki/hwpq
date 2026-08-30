@@ -68,6 +68,7 @@ bind hwpq_rst_bram_tree_pipelined hwpq_bram_aux #(
     .queue_size   (u_dut.queue_size),
     .sift_done    (u_dut.sift_done),
     .root_done    (u_dut.root_done),
+    .filling      (u_dut.filling),
     .o_write_ready(o_write_ready),
     .o_read_ready (o_read_ready),
     .o_data       (o_data),

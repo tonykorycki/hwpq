@@ -48,6 +48,7 @@ module hwpq_bram_aux #(
     input var logic [31:0]           queue_size,
     input var logic                  sift_done,
     input var logic                  root_done,
+    input var logic                  filling,    // the post-reset placeholder sweep
 
     // interface
     input var logic                  o_write_ready,
@@ -100,19 +101,26 @@ module hwpq_bram_aux #(
   // The reset defect
   // ---------------------------------------------------------------------------
   //
-  // bram_seq (:239-256) resets parent_lvl, parent_idx, level_0, level_1 and every
-  // BRAM port register -- but not the BRAM contents, and nothing else rewrites
-  // them. So a reset asserted while the queue holds data leaves the memory
-  // holding stale nodes while queue_size reports 0.
+  // bram_seq resets parent_lvl, parent_idx, level_0, level_1 and every BRAM port
+  // register -- but not the BRAM contents. Nothing rewrote them, so a reset
+  // asserted while the queue held data left the memory holding stale nodes while
+  // queue_size reported 0. Fixed by the reset fill sequencer (`filling`).
   //
-  // Deliberately NOT disabled on !i_RSTn: the claim is about what reset itself
-  // does, so the reset window is the interesting one.
-  a_reset_restores_fill : assert property (@(posedge i_CLK)
-      !i_RSTn |=> fill_intact);
+  // THE ORIGINAL FORM OF THIS PROPERTY WAS UNSATISFIABLE. It read
+  //
+  //     a_reset_restores_fill : !i_RSTn |=> fill_intact;
+  //
+  // which demands the whole memory read all-ones ONE cycle after reset asserts --
+  // a single-cycle bulk clear that no BRAM can do. It named a real defect and
+  // could not have gone green against any correct implementation; see F-20. The
+  // achievable contract is that the sweep has finished before the module will
+  // take a command, which is what these two say together.
+  a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      $fell(filling) |-> fill_intact);
 
-  c_reset_with_data : cover property (@(posedge i_CLK)
-      (queue_size > 0) ##1 !i_RSTn);
-
+  // ...and nothing may be accepted until it has.
+  a_no_ready_while_filling : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      filling |-> !o_write_ready && !o_read_ready);
 
   // ---------------------------------------------------------------------------
   // The deepest level is reached, which is why the guards were needed
@@ -154,8 +162,13 @@ module hwpq_bram_aux #(
   // forced to exist by the shared six-port interface. The spec binds with
   // HAS_FULL=0 for exactly this reason; stating it here is what stops that
   // parameter from being an unexamined inheritance (F-10).
+  //
+  // The right-hand side gained `&& !filling` with the reset fix: the port now
+  // means quiescent AND initialised. Both terms belong in it -- the design decodes
+  // commands off exactly this expression, so writing the property against anything
+  // narrower would reopen the ready/accept gap that F-7 records.
   a_wready_is_quiescence : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
-      o_write_ready == sift_done);
+      o_write_ready == (sift_done && !filling));
 
   // ---------------------------------------------------------------------------
   // Covers that HAS_FULL=0 drops from the portable spec

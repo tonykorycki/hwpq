@@ -40,14 +40,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # QUEUE_SIZE must be 2^k-1 for the tree designs: NODES_NEEDED is
 # (1 << TREE_DEPTH) - 1, and any other size leaves a partly-populated bottom
 # level. 7 is the smallest size with a real interior level.
-elaborate -top register_tree \
+elaborate -top hwpq_rst_register_tree \
     -parameter QUEUE_SIZE 7 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    1
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_tree

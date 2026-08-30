@@ -66,6 +66,14 @@ module hwpq_systolic_aux #(
   a_selftest_must_fail : assert property (@(posedge i_CLK) disable iff (!i_RSTn) 1'b0);
 `endif
 
+
+  // Is a SECOND reset in scope? Deliberately NOT disabled on !i_RSTn - the point
+  // is to witness the low phase. If this is ever unreachable, the reset harness
+  // is not in place and every property here describes the post-first-reset run
+  // only, with any mid-operation-reset defect invisible.
+  c_reset_reasserted : cover property (@(posedge i_CLK)
+      i_RSTn ##1 !i_RSTn ##1 i_RSTn);
+
 endmodule
 
 `default_nettype wire

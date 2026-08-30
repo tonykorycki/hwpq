@@ -42,14 +42,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # QUEUE_SIZE must be 2^k-1 for the tree designs.
-elaborate -top register_tree_pipelined \
+elaborate -top hwpq_rst_register_tree_pipelined \
     -parameter QUEUE_SIZE 7 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    1
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_tree_pipelined

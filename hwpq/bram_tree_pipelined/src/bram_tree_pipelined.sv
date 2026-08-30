@@ -507,7 +507,15 @@ module bram_tree_pipelined #(
   // Assignments for status and output.
   //-------------------------------------------------------------------------
   assign o_write_ready = sift_done;
-  assign o_read_ready  = !(queue_size == 0) && root_done;
+  // root_done rises on the ROOT write-back, the first of the walk; sift_done only
+  // when the walk terminates, up to TREE_DEPTH-1 levels and ~4 cycles per level
+  // later. Advertising a read on root_done meant the module offered a dequeue it
+  // would then silently discard, because cmd_dequeue is gated on sift_done.
+  //
+  // Gating on sift_done costs nothing: no command could be accepted inside that
+  // window anyway. The only thing lost is an early data-valid hint, and the
+  // six-port interface gives no way for a caller to consume one.
+  assign o_read_ready  = !(queue_size == 0) && sift_done;
   assign o_data  = level_0;
 
 endmodule

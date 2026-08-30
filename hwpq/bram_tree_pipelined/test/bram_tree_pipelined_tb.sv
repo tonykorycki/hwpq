@@ -1,11 +1,11 @@
 `default_nettype none
 // bram_tree_pipelined shim for the shared testbench body (test/common/hwpq_tb_common.svh).
 //
-// settle contract is module-specific here: o_write_ready == sift_done is the true
-// "ready to accept the next command" signal (full never blocks a replace, so it is
-// deliberately not gated on full). o_read_ready exposes root_done, which goes high one
-// cycle earlier than sift_done, so OR-ing it into settled would release the next command
-// mid-sift and it would be dropped
+// bram_tree_pipelined uses the standard settle contract. It did not always: while
+// o_read_ready exposed root_done, which rises one walk earlier than sift_done,
+// OR-ing it into settled released the next command mid-sift and the DUT dropped
+// it, so this shim used `settled = o_write_ready` alone. o_read_ready is now
+// gated on sift_done in the RTL, so the shared form is correct here.
 module bram_tree_pipelined_tb;
   localparam int QUEUE_SIZE = 15;
   localparam int DATA_WIDTH = 16;
@@ -31,5 +31,5 @@ module bram_tree_pipelined_tb;
       .o_data(o_data)
   );
 
-  assign settled = o_write_ready; // see above
+  assign settled = o_write_ready || o_read_ready;
 endmodule

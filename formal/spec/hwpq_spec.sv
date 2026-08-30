@@ -115,6 +115,32 @@ module hwpq_spec #(
   am_payload_legal : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       i_data != '0 && i_data != '1);
 
+  // `settled &&` is load-bearing. o_write_ready is !full AND not-busy, so a bare
+  // !o_write_ready also latches on the first BUSY cycle - which on a sequential
+  // module means the latch fires almost immediately and the assumption stops
+  // constraining anything. Gating on settled is what makes this mean "reported
+  // full while quiescent". It made no difference on the combinational modules,
+  // which is exactly why it survived there. (F-5.)
+  //
+  // Declared at module scope rather than inside g_fill_first because the
+  // occupancy properties below are scoped on it too.
+  logic filled_once;
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin
+    if (!i_RSTn) filled_once <= 1'b0;
+    else if (settled && !o_write_ready) filled_once <= 1'b1;
+  end
+
+  // Under the fill-before-read convention the caller does not read during the
+  // fill phase, so o_read_ready is unobservable there BY CONTRACT and the
+  // occupancy properties must not assert over it. CH-4 always meant to cover
+  // that whole window; am_fill_before_read covered only half of it, forbidding
+  // the dequeue while the occupancy asserts kept running over the same cycles.
+  // Same shape as F-5: an assumption narrower than it claimed to be.
+  //
+  // Folds to constant 1 wherever the convention does not apply, so enqueue-capable
+  // and --ungated builds are unaffected and still assert over every cycle.
+  wire fill_scope = (ENQ_ENA || !ASSUME_FILL_FIRST) || filled_once;
+
   generate
     // Guarded on HAS_BUSY as well as the parameter: with no busy state the
     // antecedent is unsatisfiable, so this constrains nothing and only leaves
@@ -136,6 +162,18 @@ module hwpq_spec #(
     if (!ENQ_ENA) begin : g_replace_only
       am_no_enqueue_cmd : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !cmd_enqueue);
+
+      // The head must never be one of the all-ones placeholders the build resets
+      // into. A replace-only queue boots full of them with size 0, and a payload
+      // sorts BELOW them, so during the fill phase the queue advertises as its
+      // maximum a value the caller never inserted - F-1's headline symptom.
+      //
+      // Nothing else here catches it. a_head_is_max passes throughout, because
+      // all-ones genuinely does outrank everything resident, and the occupancy
+      // properties catch only the downstream consequence. Interface-only, so it
+      // stays portable across every replace-only build.
+      a_head_not_placeholder : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+          settled && o_read_ready |-> o_data != '1);
     end
 
     // The initialisation convention, as an assumption: do not read from a
@@ -150,18 +188,6 @@ module hwpq_spec #(
     // HOLE CH-4: any bug that needs a read during the fill phase is now
     // unreachable. Set ASSUME_FILL_FIRST=0 for an ungated run.
     if (!ENQ_ENA && ASSUME_FILL_FIRST) begin : g_fill_first
-      // `settled &&` is load-bearing. o_write_ready is !full AND not-busy, so a
-      // bare !o_write_ready also latches on the first BUSY cycle - which on a
-      // sequential module means the latch fires almost immediately and the
-      // assumption stops constraining anything. Gating on settled is what makes
-      // this mean "reported full while quiescent". It made no difference on the
-      // combinational modules, which is exactly why it survived there.
-      logic filled_once;
-      always_ff @(posedge i_CLK or negedge i_RSTn) begin
-        if (!i_RSTn) filled_once <= 1'b0;
-        else if (settled && !o_write_ready) filled_once <= 1'b1;
-      end
-
       am_fill_before_read : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
           !filled_once |-> !cmd_dequeue);
     end
@@ -292,7 +318,7 @@ module hwpq_spec #(
       settled |-> occ <= OCC_W'(CAPACITY));
 
   a_occ_empty_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
-      settled |-> ((occ == 0) == !o_read_ready));
+      settled && fill_scope |-> ((occ == 0) == !o_read_ready));
 
   generate
     if (HAS_FULL) begin : g_occ_full
@@ -369,7 +395,7 @@ module hwpq_spec #(
 
   // no silent loss: if a copy should be resident, the DUT must not claim empty
   a_no_loss : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
-      settled && cnt > 0 |-> o_read_ready);
+      settled && fill_scope && cnt > 0 |-> o_read_ready);
 
   // the head outranks everything resident
   a_head_is_max : assert property (@(posedge i_CLK) disable iff (!i_RSTn)

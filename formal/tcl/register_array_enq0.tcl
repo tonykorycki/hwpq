@@ -59,6 +59,11 @@ set HWPQ_ALLOW_BOUNDED 0
 # one appears, something regressed. Either way the run fails and says which.
 #   F-1: without ASSUME_FILL_FIRST the replace-only queue reports empty while
 #   still physically holding the payload, and advertises a placeholder as data.
+#   The TRACE behind those two changed when the head gate landed: they used to
+#   fire because the queue advertised a placeholder as data, and now fire because
+#   it holds an element during the fill phase that it will not admit to. Same two
+#   names, different defect. HWPQ_EXPECT_CEX matches on NAMES, so the run cannot
+#   tell those apart on its own -- see FINDINGS.
 if {$HWPQ_UNGATED} {
     set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss}
 } else {

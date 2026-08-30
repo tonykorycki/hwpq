@@ -78,15 +78,16 @@ elaborate -top hwpq_rst_bram_tree_pipelined \
 clock i_CLK
 reset ~i_init_RSTn
 
-# CH-6: the BRAMs have no reset and Jasper ignores the `initial` block that fills
-# them (VERI-1060), so without this they start arbitrary and every ordering
-# property fails for reasons unrelated to the design. -bound 1 pins the contents
-# at cycle 0 ONLY, which is the whole point: a later reset stays free, so
-# a_reset_restores_fill can still expose the fact that nothing rewrites them.
+# CH-6 IS RETIRED. It used to read
 #
-# It lives here rather than in the spec because SVA cannot say "at time zero" --
-# the spec-side phrasing on !i_init_RSTn proved vacuous, see hwpq_bram_aux.sv.
-assume -bound 1 {u_bram_aux.fill_intact}
+#     assume -bound 1 {u_bram_aux.fill_intact}
+#
+# because the BRAMs have no reset, Jasper ignores the `initial` block that fills
+# them (VERI-1060), and so they started arbitrary -- every ordering property then
+# failed for reasons unrelated to the design. The reset fill sequencer establishes
+# the all-ones contents from whatever the memory powers up holding, and no command
+# is accepted until it has, so the assumption is no longer load-bearing and the
+# proofs now run with the memory contents entirely free.
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        bram_tree_pipelined

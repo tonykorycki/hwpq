@@ -184,6 +184,14 @@ module bram_tree_pipelined #(
 
   always_comb begin : fsm_comb
     next_state = IDLE;  // default next state, latch preventing
+    // Parked during the reset fill. IDLE otherwise advances to READ_MEM
+    // unconditionally, so the walk free-runs with no command outstanding -- which
+    // during the fill means it drives the comparator from whatever the memory is
+    // reading back mid-sweep, and is free to write that result over the fill on
+    // the cycle `filling` drops.
+    if (filling) begin
+      next_state = IDLE;
+    end else begin
     case (state)
       IDLE: begin
         next_state = READ_MEM;
@@ -242,6 +250,7 @@ module bram_tree_pipelined #(
         next_state = IDLE;
       end
     endcase
+    end
   end
 
   //-------------------------------------------------------------------------
@@ -440,6 +449,11 @@ module bram_tree_pipelined #(
     // The fill overrides the walk's port driving. It cannot collide with it: no
     // command is accepted while `filling`, so no walk is in flight.
     if (filling) begin
+      next_parent_lvl = '0;
+      next_parent_idx = '0;
+      next_level_0    = '1;
+      next_level_1[0] = '1;
+      next_level_1[1] = '1;
       for (lvl_comb = 2; lvl_comb < TREE_DEPTH; lvl_comb++) begin
         next_addr_a[lvl_comb] = fill_cnt[ADDRESS_WIDTH:0];
         next_din_a[lvl_comb]  = '1;

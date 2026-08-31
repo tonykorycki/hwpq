@@ -295,12 +295,24 @@ module bram_tree #(
         end else if (i_wrt && i_read) begin // --- REPLACE ---
           next.value    = i_data;
           next.position = 0;
-          next.capacity = (empty) ? top_level.capacity + 1 : top_level.capacity;
+          // A replace on an EMPTY queue INSERTS an element, so free space must go
+          // DOWN to QUEUE_SIZE-1 -- the same value the enqueue arm assigns for the
+          // identical case. It used to read `top_level.capacity + 1`, which is
+          // wrong twice: the direction is the DEQUEUE arm's, where an element
+          // leaves and space grows; and it overflows, because capacity is
+          // QUEUE_SIZE on an empty queue and the field is ADDRESS_WIDTH bits, so
+          // 7 + 1 truncates to 0.
+          //
+          // The black-box spec does NOT see this -- all ten asserts prove with the
+          // faulty arithmetic in place. It took the white-box invariant
+          // a_root_capacity_agrees, which fails at 9 cycles, to demonstrate it.
+          // That is the difference between a code reading and evidence.
+          next.capacity = (empty) ? ADDRESS_WIDTH'(QUEUE_SIZE - 1) : top_level.capacity;
 
           if (queue_size == 0) begin
             next_top_level.active   = 1'b1;
             next_top_level.value    = i_data;
-            next_top_level.capacity = top_level.capacity + 1;
+            next_top_level.capacity = ADDRESS_WIDTH'(QUEUE_SIZE - 1);
             next_state = IDLE;
           end else begin
             next_top_level.active   = 1'b0;

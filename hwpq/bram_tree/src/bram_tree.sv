@@ -262,7 +262,15 @@ module bram_tree #(
             next_state = ENQUEUE_COMPARE_CHILD;
           end
           next_queue_size = queue_size + 1;
-        end else if (!i_wrt && i_read) begin // --- DEQUEUE ---
+        // WHAT PASSING LOOKS LIKE: a_no_deq_when_empty says the DUT must not
+        // accept a dequeue it does not advertise. With this guard the arm does
+        // not fire on an empty queue, the chain falls through, next_state stays
+        // IDLE and next_queue_size stays put -- the command is INERT, which is
+        // the F-8 principle. Without it the arm ran the whole descent and drove
+        // next_queue_size to queue_size - 1, underflowing the counter.
+        // Demonstrated at the previous commit: cex in 10 cycles. Simulation
+        // cannot reach it -- the testbench gates every dequeue on o_read_ready.
+        end else if (!i_wrt && i_read && (queue_size != 0)) begin // --- DEQUEUE ---
           next_top_level.active   = 1'b0;
           next_top_level.value    = '0;
           next_top_level.capacity = top_level.capacity + 1;

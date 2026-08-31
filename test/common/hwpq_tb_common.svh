@@ -14,7 +14,12 @@
       The settle wire lives in the shim so a module without a real handshake
       can later synthesize it from a counter without touching this body.
 
-  OPTIONAL SHIM OVERRIDE (before the include):
+  OPTIONAL SHIM OVERRIDES (before the include):
+    `define TB_CAPACITY <expr>
+      Defaults to QUEUE_SIZE. The number of elements the DUT actually holds, which
+      is what the readies are checked against. systolic_array reserves two slots
+      as shift-chain margin (F-9), so its shim sets QUEUE_SIZE-2.
+
     `define TB_TRACKS_FULL 0
       Defaults to 1. Set 0 for a DUT whose o_write_ready does NOT drop when full.
       A replace-only DUT with no enqueue path (e.g. bram_tree_pipelined) gates nothing
@@ -44,6 +49,13 @@
   `define TB_TRACKS_FULL 1
 `endif
 
+// Elements the DUT will actually hold. QUEUE_SIZE everywhere except
+// systolic_array, whose `full` is (size >= QUEUE_SIZE - 2) -- the two reserved
+// slots are the shift chain's margin, and one is provably not enough (F-9).
+`ifndef TB_CAPACITY
+  `define TB_CAPACITY QUEUE_SIZE
+`endif
+
 logic i_CLK;
 logic i_RSTn;
 
@@ -59,6 +71,13 @@ logic settled;
 
 logic [DATA_WIDTH-1:0] ref_queue [$:QUEUE_SIZE-1];
 int                    ref_queue_size = 0;
+
+// Is the readies-vs-model check in force? An ENQ_ENA=0 DUT boots physically full
+// of '1 placeholders while size resets to 0, and o_read_ready is gated on the
+// head not being one, so !o_read_ready and a non-empty model coexist legitimately
+// until the fill completes. Formal scopes the same window with ASSUME_FILL_FIRST
+// (CH-4). Enqueue-capable builds never seat a placeholder, so it is always set.
+bit fill_complete = 0;
 
 logic [DATA_WIDTH-1:0] ref_queue_prev [$:QUEUE_SIZE-1];
 int                    ref_queue_prev_size = 0;
@@ -155,6 +174,29 @@ task automatic clear_cmd();
   i_data = 0;
 endtask
 
+//  The readies, checked against the model (SIMULATION.md recommendation 3)
+//
+// F-2: the model's updates used to be gated on the DUT's own ready signals, so
+// it could not disagree with the DUT. "Refuses work it should accept" was
+// structurally uncatchable -- which is exactly F-7, and why simulation missed it.
+//
+// This inverts the dependency. The model owns its occupancy and the readies are
+// an assertion about it, not an input to it.
+task automatic check_readies(input string where);
+  begin
+    if (fill_complete) begin
+      assert (o_read_ready == (ref_queue_size != 0))
+      else begin error_count++; $error("Readies (%s): o_read_ready=%0b but the model holds %0d element(s)",
+                                       where, o_read_ready, ref_queue_size); end
+      if (`TB_TRACKS_FULL) begin
+        assert (o_write_ready == (ref_queue_size != `TB_CAPACITY))
+        else begin error_count++; $error("Readies (%s): o_write_ready=%0b but the model holds %0d of %0d",
+                                         where, o_write_ready, ref_queue_size, `TB_CAPACITY); end
+      end
+    end
+  end
+endtask
+
 //  Stimulus tasks, gated on settled
 
 task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
@@ -162,8 +204,11 @@ task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
   bit  accepted;
   begin
     poll_settled();  // the DUT refuses commands while settling
+    check_readies("before enqueue");
+    // The MODEL decides whether there is room; o_write_ready is asserted against
+    // that decision rather than consulted for it (F-2).
     accepted = 0;
-    if (o_write_ready) begin
+    if (ref_queue_size != `TB_CAPACITY) begin
       i_wrt  = 1;
       i_read = 0;
       i_data = value;
@@ -175,13 +220,14 @@ task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
         accepted = 1;
       end
     end else begin
-      $display("Enqueue: Queue full, skipping enqueue");
+      $display("Enqueue: model is full, skipping enqueue");
     end
     t0 = cycle;
     @(posedge i_CLK);  // DUT captures the command here
     @(negedge i_CLK);  // release it off the edge
     clear_cmd();
     poll_settled();
+    check_readies("after enqueue");
     if (accepted) record(ENQUEUE, cycle - t0);
   end
 endtask
@@ -191,8 +237,11 @@ task automatic dequeue();
   bit  accepted;
   begin
     poll_settled();
+    check_readies("before dequeue");
+    // The MODEL decides whether there is data; o_read_ready is asserted against
+    // that decision rather than consulted for it (F-2).
     accepted = 0;
-    if (o_read_ready) begin
+    if (ref_queue_size != 0) begin
       i_wrt  = 0;
       i_read = 1;
       i_data = 0;
@@ -204,13 +253,14 @@ task automatic dequeue();
       ref_queue_size--;
       accepted = 1;
     end else begin
-      $display("Dequeue: Queue empty, skipping dequeue");
+      $display("Dequeue: model is empty, skipping dequeue");
     end
     t0 = cycle;
     @(posedge i_CLK);
     @(negedge i_CLK);
     clear_cmd();
     poll_settled();
+    check_readies("after dequeue");
     if (accepted) record(DEQUEUE, cycle - t0);
   end
 endtask
@@ -219,11 +269,13 @@ task automatic replace(input logic [DATA_WIDTH-1:0] value);
   int t0;
   begin
     poll_settled();
+    check_readies("before replace");
     i_wrt  = 1;
     i_read = 1;
     i_data = value;
-    if (!o_read_ready) begin
-      // Empty queue: replace degenerates to an insert.
+    if (ref_queue_size == 0) begin
+      // Empty queue: replace degenerates to an insert. Decided by the model, not
+      // by o_read_ready (F-2).
       ref_queue[ref_queue_size] = value;
       ref_queue_size++;
     end else begin
@@ -235,6 +287,7 @@ task automatic replace(input logic [DATA_WIDTH-1:0] value);
     @(negedge i_CLK);
     clear_cmd();
     poll_settled();
+    check_readies("after replace");
     record(REPLACE, cycle - t0);
   end
 endtask
@@ -262,6 +315,9 @@ task automatic apply_reset();
     i_RSTn = 1;
     @(posedge i_CLK);
     @(negedge i_CLK);  // enter the negedge contract before any poll
+    // An ENQ_ENA=0 DUT comes back physically full of placeholders, so the
+    // readies-vs-model check is out of force until the fill completes.
+    fill_complete = ENQ_ENA;
   end
 endtask
 
@@ -304,6 +360,7 @@ task automatic refill_after_reset();
       end
     end
     rsort();
+    fill_complete = 1;
     poll_settled();
   end
 endtask
@@ -499,6 +556,7 @@ task automatic test_enq_disabled();
       replace_init(random_value);
     end
     rsort();
+    fill_complete = 1;
     poll_settled();
 
     $display("\nTest Case 5: Dequeue Test (ENQ_ENA disabled)");

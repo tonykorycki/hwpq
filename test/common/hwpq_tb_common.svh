@@ -370,6 +370,51 @@ task automatic reset_case(input operation_t op, input int delay, input int predr
   end
 endtask
 
+//  Impolite stimulus (SIMULATION.md recommendation 2)
+//
+// The tb walks up to every handshake violation and turns around: enqueue()
+// prints "Queue full, skipping enqueue" and dequeue() consults o_read_ready
+// first. The largest single category in FINDINGS.md lives in the space that
+// politeness excludes -- F-7, F-8, F-30 and F-31 are all "a refused command is
+// not inert". These tasks issue the command anyway.
+//
+// Note the shape of the assertion: it asserts that NOTHING happens. A refused
+// command doing nothing is the contract (the F-8 principle); a refused command
+// doing something is the defect.
+
+// Drive a raw command with no ready check and no model update, then settle.
+task automatic poke(input logic wrt, input logic read, input logic [DATA_WIDTH-1:0] value);
+  begin
+    poll_settled();
+    i_wrt  = wrt;
+    i_read = read;
+    i_data = value;
+    @(posedge i_CLK);
+    @(negedge i_CLK);
+    clear_cmd();
+    poll_settled();
+  end
+endtask
+
+// The DUT must be inert across an illegal command: head and both readies
+// unmoved. The caller checks afterwards that a legal operation still works.
+task automatic check_inert(input logic wrt, input logic read, input string what);
+  logic [DATA_WIDTH-1:0] head_before;
+  logic                  wr_before, rd_before;
+  begin
+    poll_settled();
+    head_before = o_data;
+    wr_before   = o_write_ready;
+    rd_before   = o_read_ready;
+    poke(wrt, read, $urandom_range(1, 1023));
+    assert (o_data == head_before)
+    else begin error_count++; $error("Inert (%s): head moved %d -> %d", what, head_before, o_data); end
+    assert (o_write_ready == wr_before && o_read_ready == rd_before)
+    else begin error_count++; $error("Inert (%s): readies moved {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     what, wr_before, rd_before, o_write_ready, o_read_ready); end
+  end
+endtask
+
 //  Test programs
 task automatic test_enq_enabled();
   begin
@@ -559,6 +604,47 @@ task automatic test_reset_midstream();
   end
 endtask
 
+task automatic test_impolite();
+  begin
+    $display("\nTest Case 10: Commands the DUT says it will not accept");
+
+    // A dequeue on an empty queue. ENQ_ENA=1 boots all-zero; ENQ_ENA=0 boots
+    // physically full of '1 placeholders but logically empty and gates
+    // o_read_ready on the head not being one (F-1). Both must refuse the read.
+    apply_reset();
+    model_reset();
+    assert (!o_read_ready)
+    else begin error_count++; $error("Impolite: a freshly reset queue advertises data"); end
+    for (int i = 0; i < 3; i++) check_inert(1'b0, 1'b1, "dequeue on empty");
+    refill_and_drain_check("after dequeue-on-empty");
+
+    // An enqueue on a full queue. Only meaningful where !o_write_ready really
+    // means full -- see TB_TRACKS_FULL. An ENQ_ENA=0 DUT has no enqueue
+    // datapath, so the check is trivially true there and kept for uniformity.
+    if (`TB_TRACKS_FULL) begin
+      apply_reset();
+      model_reset();
+      refill_after_reset();
+      assert (!o_write_ready)
+      else begin error_count++; $error("Impolite: the queue did not fill, so enqueue-on-full is untested"); end
+      for (int i = 0; i < 3; i++) check_inert(1'b1, 1'b0, "enqueue on full");
+      // A clobbering enqueue leaves a valid-looking heap of the wrong contents,
+      // so drain the whole thing in order rather than reading the head.
+      for (int i = 0; i < QUEUE_SIZE; i++) begin
+        dequeue();
+        if (o_read_ready)
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Impolite: post enqueue-on-full drain step %0d -> expected %d, got %d", i, ref_queue[0], o_data); end
+        else
+          assert (o_data == '0)
+          else begin error_count++; $error("Impolite: post enqueue-on-full drain step %0d, now empty -> expected 0, got %d", i, o_data); end
+      end
+      assert (!o_read_ready)
+      else begin error_count++; $error("Impolite: queue did not empty after enqueue-on-full"); end
+    end
+  end
+endtask
+
 // Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
 // exercise the empty-state o_data branch and the replace-into-empty insert path, which
 // the fixed-length stress loop cannot reliably reach on the larger queues
@@ -610,6 +696,8 @@ initial begin
   else         test_enq_disabled();
 
   test_reset_midstream();
+
+  test_impolite();
 
   test_drain();
 

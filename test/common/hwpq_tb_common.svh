@@ -98,6 +98,24 @@ int                    ref_queue_prev_size = 0;
 
 logic [DATA_WIDTH-1:0] o_data_prev;
 
+// Payload alphabet (SIMULATION.md recommendation 5).
+//
+// $urandom_range(1, 1023) over a 16-bit payload means ties essentially never
+// occur, so the comparators are least tested exactly where ordering and
+// tie-breaking bugs live. The proofs run at DATA_WIDTH=2 -- two legal values
+// once both sentinels are reserved -- where every comparison is a tie. This
+// narrows the stimulus to 1..3 for one phase to force duplicates.
+//
+// Both reserved values stay off the alphabet either way: '0 is the empty marker
+// and the dequeue mechanism, '1 is the max-priority placeholder, and both are
+// reserved in every build.
+bit narrow_alphabet = 0;
+
+function automatic logic [DATA_WIDTH-1:0] rand_value();
+  return narrow_alphabet ? DATA_WIDTH'($urandom_range(1, 3))
+                         : DATA_WIDTH'($urandom_range(1, 1023));
+endfunction
+
 logic [DATA_WIDTH-1:0] random_value;
 int                    random_operation;
 int                    error_count = 0;
@@ -368,7 +386,7 @@ endtask
 task automatic refill_after_reset();
   begin
     for (int i = 0; i < QUEUE_SIZE; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       if (ENQ_ENA) begin
         enqueue(random_value);
       end else begin
@@ -390,9 +408,9 @@ task automatic reset_during(input operation_t op, input int delay);
   begin
     poll_settled();
     case (op)
-      ENQUEUE: begin i_wrt = 1; i_read = 0; i_data = $urandom_range(1, 1023); end
+      ENQUEUE: begin i_wrt = 1; i_read = 0; i_data = rand_value(); end
       DEQUEUE: begin i_wrt = 0; i_read = 1; i_data = 0;                       end
-      REPLACE: begin i_wrt = 1; i_read = 1; i_data = $urandom_range(1, 1023); end
+      REPLACE: begin i_wrt = 1; i_read = 1; i_data = rand_value(); end
     endcase
     @(posedge i_CLK);  // the DUT captures the command here
     @(negedge i_CLK);
@@ -518,7 +536,7 @@ task automatic check_inert(input logic wrt, input logic read, input string what)
     head_before = o_data;
     wr_before   = o_write_ready;
     rd_before   = o_read_ready;
-    poke(wrt, read, $urandom_range(1, 1023));
+    poke(wrt, read, rand_value());
     assert (o_data == head_before)
     else begin error_count++; $error("Inert (%s): head moved %d -> %d", what, head_before, o_data); end
     assert (o_write_ready == wr_before && o_read_ready == rd_before)
@@ -534,7 +552,7 @@ task automatic test_enq_enabled();
 
     $display("\nInitializing by enqueue");
     for (int i = 0; i < QUEUE_SIZE; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
     end
     assert (!o_write_ready)
@@ -553,7 +571,7 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 2: Enqueue Test (ENQ_ENA enabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -563,7 +581,7 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 3: Replace Test (ENQ_ENA enabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       replace(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -577,7 +595,7 @@ task automatic test_enq_enabled();
       random_operation = $urandom_range(1, 3);
       case (random_operation)
         ENQUEUE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           enqueue(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -592,7 +610,7 @@ task automatic test_enq_enabled();
             else begin error_count++; $error("Random Dequeue: mismatch -> expected %d, got %d", '0, o_data); end
         end
         REPLACE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           replace(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -608,7 +626,7 @@ task automatic test_enq_disabled();
 
     $display("\nInitializing by replace");
     for (int i = 0; i < QUEUE_SIZE; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       ref_queue.push_back(random_value);
       ref_queue_size++;
       replace_init(random_value);
@@ -638,7 +656,7 @@ task automatic test_enq_disabled();
     ref_queue_prev      = ref_queue;
     ref_queue_prev_size = ref_queue_size;
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -662,7 +680,7 @@ task automatic test_enq_disabled();
 
     $display("\nTest Case 7: Replace Test (ENQ_ENA disabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       replace(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -683,7 +701,7 @@ task automatic test_enq_disabled();
             else begin error_count++; $error("Random Dequeue: mismatch -> expected %d, got %d", '0, o_data); end
         end
         REPLACE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           replace(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -762,6 +780,51 @@ task automatic test_impolite();
   end
 endtask
 
+task automatic test_narrow_alphabet();
+  begin
+    $display("\nTest Case 11: Narrow payload alphabet (1..3)");
+    narrow_alphabet = 1;
+
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+
+    for (int i = 0; i < stress_test_iters; i++) begin
+      random_operation = ENQ_ENA ? $urandom_range(1, 3) : $urandom_range(2, 3);
+      case (random_operation)
+        ENQUEUE: begin
+          enqueue(rand_value());
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Narrow enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+        end
+        DEQUEUE: begin
+          dequeue();
+          if (o_read_ready)
+            assert (o_data == ref_queue[0])
+            else begin error_count++; $error("Narrow dequeue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+          else
+            assert (o_data == '0)
+            else begin error_count++; $error("Narrow dequeue: mismatch -> expected %d, got %d", '0, o_data); end
+        end
+        REPLACE: begin
+          replace(rand_value());
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Narrow replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+        end
+      endcase
+    end
+
+    // With three legal values the queue is mostly duplicates, so the ordered
+    // sequence is where a tie-breaking bug shows up rather than the head.
+    drain_and_compare("narrow alphabet");
+
+    narrow_alphabet = 0;
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
 // Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
 // exercise the empty-state o_data branch and the replace-into-empty insert path, which
 // the fixed-length stress loop cannot reliably reach on the larger queues
@@ -784,7 +847,7 @@ task automatic test_drain();
     assert (o_data == '0)
     else begin error_count++; $error("Drain: empty o_data should be 0, got %d", o_data); end
 
-    random_value = $urandom_range(1, 1023);
+    random_value = rand_value();
     replace(random_value);
     assert (o_read_ready)
     else begin error_count++; $error("Drain: replace on empty should insert (o_read_ready stayed low)"); end
@@ -815,6 +878,8 @@ initial begin
   test_reset_midstream();
 
   test_impolite();
+
+  test_narrow_alphabet();
 
   test_drain();
 

@@ -55,6 +55,22 @@ bind bram_tree hwpq_spec #(
 );
 
 
+// The white-box addendum binds to the HARNESS, not to the DUT: it needs
+// i_init_RSTn to tell the first reset from a later one, and that only exists one
+// level up. The node memory arrives by hierarchical reference.
+bind hwpq_rst_bram_tree hwpq_bram_tree_aux #(
+    .QUEUE_SIZE   (QUEUE_SIZE),
+    .DATA_WIDTH   (DATA_WIDTH),
+    .NODES_NEEDED (7),
+    .ADDRESS_WIDTH(3)
+) u_bram_aux (
+    .i_CLK      (i_CLK),
+    .i_init_RSTn(i_init_RSTn),
+    .i_RSTn     (i_RSTn),
+    .ram        (u_dut.bram_inst.ram)
+);
+
+
 // Reset harness -- the elaboration top for this module's proofs.
 //
 // Jasper's `reset` takes a SIMPLE PIN constraint (compound expressions are

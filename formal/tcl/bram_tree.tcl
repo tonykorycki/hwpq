@@ -34,6 +34,7 @@ set src {
     hwpq/bram_tree/src/bram_tree.sv
     hwpq/bram_tree/src/rams_tdp_rf_rf.sv
     formal/spec/hwpq_spec.sv
+    formal/spec/hwpq_bram_tree_aux.sv
     formal/bind/bram_tree_bind.sv
 }
 set hwpq_defs {}
@@ -71,6 +72,21 @@ elaborate -top hwpq_rst_bram_tree \
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
 reset ~i_init_RSTn
+
+# CH-6, in bram_tree's own instance. The BRAMs have no reset port and Jasper
+# ignores the `initial` block that fills them (VERI-1060), so without this the
+# memory starts arbitrary -- including the per-node `capacity` fields that carry
+# this design's entire free-space accounting -- and the ordering and occupancy
+# properties fail for reasons unrelated to the design.
+#
+# `-bound 1` pins CYCLE 0 and nothing after it. A later reset stays free, which
+# is what leaves "reset does not restore the memory" reachable and provable as a
+# defect rather than assumed away. See formal/spec/hwpq_bram_tree_aux.sv.
+#
+# It was MISSING from b13e3f1 through the enqueue-guard commit, so every result
+# in that range was measured against a memory the tool was free to invent. The
+# VERI-1060 warning naming it was printed on every one of those runs.
+assume -bound 1 {u_bram_aux.fill_intact}
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        bram_tree

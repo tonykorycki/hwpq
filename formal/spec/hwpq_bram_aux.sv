@@ -50,6 +50,7 @@ module hwpq_bram_aux #(
     input var logic                  root_done,
     input var logic                  filling,    // the post-reset placeholder sweep
     input var logic                  cmd_replace,
+    input var logic                  cmd_dequeue,
 
     // interface
     input var logic                  o_write_ready,
@@ -299,7 +300,14 @@ module hwpq_bram_aux #(
       sift_done_d2 <= sift_done_d1;
     end
   end
-  wire quiesced = sift_done && sift_done_d1 && sift_done_d2;
+  // `&& !filling` is load-bearing. sift_done RESETS HIGH, so without it the window
+  // opens two cycles after reset -- in the middle of the placeholder sweep, when
+  // the memory is half written and counting the tree is meaningless. Retiring CH-6
+  // is what exposed this: the contents now power up arbitrary by design, so
+  // `occupied` at cycle 0 is whatever Jasper picked. Both conservation properties
+  // failed at a depth of ONE cycle on that, which is the tell -- a real
+  // conservation defect needs commands to have happened.
+  wire quiesced = sift_done && sift_done_d1 && sift_done_d2 && !filling;
 
   // Vacuity guard: the window has to be reachable with the queue non-trivial, or
   // both properties below prove by never being evaluated.
@@ -329,6 +337,14 @@ module hwpq_bram_aux #(
   // sift, or an increment fired without an insert.
   a_size_not_overstated : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       quiesced |-> queue_size <= occupied);
+
+  // Nothing moves in the tree without a command to justify it. Written to bisect
+  // a_size_not_understated -- if the contents could change while quiescent with no
+  // command accepted, the walk's write-back was at fault rather than the counter --
+  // and kept because it is the stronger statement of the two: it holds per-cycle,
+  // where conservation only relates two aggregates.
+  a_occupied_stable_when_idle : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      (quiesced && !cmd_replace && !cmd_dequeue) |=> (occupied == $past(occupied)));
 
   // The tree holds more elements than the counter claims: the sift duplicated a
   // node, or an insert fired without an increment.

@@ -99,7 +99,21 @@ reset ~i_init_RSTn
 # It was MISSING from b13e3f1 through the enqueue-guard commit, so every result
 # in that range was measured against a memory the tool was free to invent. The
 # VERI-1060 warning naming it was printed on every one of those runs.
-assume -bound 1 {u_bram_aux.fill_intact}
+# CH-6 IS RETIRED. It used to read
+#
+#     assume -bound 1 {u_bram_aux.fill_intact}
+#
+# pinning the memory contents at cycle 0, because the BRAM has no reset port and
+# Jasper ignores the `initial` block that fills it (VERI-1060), so the array
+# started arbitrary and every ordering property failed for reasons unrelated to
+# the design. The reset fill sweep now establishes the contents from whatever the
+# memory powers up holding, and no command is accepted until it has, so the
+# assumption is no longer load-bearing.
+#
+# The proofs therefore run with the node memory ENTIRELY FREE -- a strictly
+# stronger result than the assumption ever allowed, and one hole fewer. Same
+# outcome as bram_tree_pipelined, which retired its CH-6 at 46bec75 for the same
+# reason.
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        bram_tree

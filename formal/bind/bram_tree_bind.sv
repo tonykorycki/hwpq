@@ -67,7 +67,10 @@ bind hwpq_rst_bram_tree hwpq_bram_tree_aux #(
     .i_CLK      (i_CLK),
     .i_init_RSTn(i_init_RSTn),
     .i_RSTn     (i_RSTn),
-    .ram        (u_dut.bram_inst.ram)
+    .ram         (u_dut.bram_inst.ram),
+    .top_capacity(u_dut.top_level.capacity),
+    .queue_size  (u_dut.queue_size),
+    .fsm_idle    (u_dut.fsm_idle)
 );
 
 

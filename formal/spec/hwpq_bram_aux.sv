@@ -49,6 +49,7 @@ module hwpq_bram_aux #(
     input var logic                  sift_done,
     input var logic                  root_done,
     input var logic                  filling,    // the post-reset placeholder sweep
+    input var logic                  cmd_replace,
 
     // interface
     input var logic                  o_write_ready,
@@ -304,6 +305,25 @@ module hwpq_bram_aux #(
   // both properties below prove by never being evaluated.
   c_quiesced_nonempty : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       quiesced && (queue_size > 1));
+
+  // The replace-over-empty-marker case, which counts CORRECTLY. Worth stating
+  // because it looks like it should not: queue_size_comb increments on
+  // `o_data == '1` or on `queue_size == 0 && i_data != 0`, and neither arm mentions
+  // '0, the empty marker DEQUEUE writes into the root. Reading the source suggests
+  // a replace evicting a '0 adds an element and counts nothing, which is exactly
+  // the shape of a_size_not_understated.
+  //
+  // It was written as a hypothesis to be judged by a run rather than by a reader,
+  // and the run rejected it: c_replace_over_zero is reachable at 175 cycles, so a
+  // replace really does evict a '0, and the increment fires anyway -- the
+  // `queue_size == 0` arm covers the case that matters. Kept as a proven invariant
+  // so the next reader does not re-derive the same wrong idea.
+  c_replace_over_zero : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
+      cmd_replace && (level_0 == '0));
+
+  a_replace_over_zero_counts : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      (cmd_replace && (level_0 == '0) && (queue_size < QUEUE_SIZE))
+      |=> queue_size == $past(queue_size) + 1);
 
   // The counter claims more elements than the tree holds: data was dropped by the
   // sift, or an increment fired without an insert.

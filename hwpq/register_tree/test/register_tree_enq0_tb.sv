@@ -6,6 +6,8 @@ module register_tree_enq0_tb;
   localparam int DATA_WIDTH = 16;
   localparam bit ENQ_ENA    = 0;
 
+  `define TB_CHECK_INTERNAL check_heap();
+
   `include "hwpq_tb_common.svh"
 
   register_tree #(
@@ -24,4 +26,25 @@ module register_tree_enq0_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
+  // SIMULATION.md recommendation 4: the heap invariant, by hierarchical
+  // reference. `queue` is an implicit binary heap -- children of i are 2i+1 and
+  // 2i+2 -- and NODES_NEEDED == QUEUE_SIZE for the 2^k-1 sizes this module
+  // requires. Safe to check at every settled point because formal proves exactly
+  // this: a_timer_is_sound in formal/spec/hwpq_tree_aux.sv establishes
+  // head_valid |-> heap_holds, so the settle timer never releases the head
+  // before the invariant holds. The port cannot see a violation -- a differently
+  // shaped heap still hands back a plausible o_data.
+  task automatic check_heap();
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
+      if (2 * i + 1 < QUEUE_SIZE)
+        assert (u_dut.queue[i] >= u_dut.queue[2*i+1])
+        else begin error_count++; $error("Heap: node %0d (%d) < left child %0d (%d)",
+                                         i, u_dut.queue[i], 2*i+1, u_dut.queue[2*i+1]); end
+      if (2 * i + 2 < QUEUE_SIZE)
+        assert (u_dut.queue[i] >= u_dut.queue[2*i+2])
+        else begin error_count++; $error("Heap: node %0d (%d) < right child %0d (%d)",
+                                         i, u_dut.queue[i], 2*i+2, u_dut.queue[2*i+2]); end
+    end
+  endtask
+
 endmodule

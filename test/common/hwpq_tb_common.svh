@@ -20,6 +20,14 @@
       is what the readies are checked against. systolic_array reserves two slots
       as shift-chain margin (F-9), so its shim sets QUEUE_SIZE-2.
 
+    `define TB_CHECK_INTERNAL <task_call>;
+      Defaults to nothing. A statement invoked at every settled point, for a shim
+      that can reach inside its DUT -- the tree shims check the heap invariant by
+      hierarchical reference. The task itself is defined in the shim, after the
+      include; a forward reference to it from this body is fine, but any VARIABLE
+      it touches must be declared before the include, because iverilog binds
+      module-scope names in file order.
+
     `define TB_TRACKS_FULL 0
       Defaults to 1. Set 0 for a DUT whose o_write_ready does NOT drop when full.
       A replace-only DUT with no enqueue path (e.g. bram_tree_pipelined) gates nothing
@@ -54,6 +62,12 @@
 // slots are the shift chain's margin, and one is provably not enough (F-9).
 `ifndef TB_CAPACITY
   `define TB_CAPACITY QUEUE_SIZE
+`endif
+
+// Optional white-box check, invoked at every settled point. Expands to nothing
+// unless the shim defines it (see TB_CHECK_INTERNAL in the header comment).
+`ifndef TB_CHECK_INTERNAL
+  `define TB_CHECK_INTERNAL
 `endif
 
 logic i_CLK;
@@ -184,6 +198,10 @@ endtask
 // an assertion about it, not an input to it.
 task automatic check_readies(input string where);
   begin
+    // Unconditional: the heap invariant holds through the fill phase too, and
+    // formal proves exactly this for the tree family -- a_timer_is_sound in
+    // formal/spec/hwpq_tree_aux.sv establishes head_valid |-> heap_holds.
+    `TB_CHECK_INTERNAL
     if (fill_complete) begin
       assert (o_read_ready == (ref_queue_size != 0))
       else begin error_count++; $error("Readies (%s): o_read_ready=%0b but the model holds %0d element(s)",
@@ -414,6 +432,43 @@ task automatic refill_and_drain_check(input string what);
   end
 endtask
 
+// Drain what the model says is held, comparing the whole ordered sequence
+// (SIMULATION.md recommendation 4). Every other check here reads o_data alone,
+// so a differently shaped but still valid heap is indistinguishable from the
+// port -- which is why F-32, a corrupted root capacity, left bram_tree green
+// against the entire black-box formal spec.
+task automatic drain_and_compare(input string what);
+  int held;
+  begin
+    poll_settled();
+    held = ref_queue_size;
+    for (int i = 0; i < held; i++) begin
+      dequeue();
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Sequence (%s): step %0d of %0d -> expected %d, got %d", what, i, held, ref_queue[0], o_data); end
+      else
+        assert (o_data == '0)
+        else begin error_count++; $error("Sequence (%s): step %0d of %0d, now empty -> expected 0, got %d", what, i, held, o_data); end
+    end
+    assert (ref_queue_size == 0 && !o_read_ready)
+    else begin error_count++; $error("Sequence (%s): queue did not empty (model %0d, o_read_ready=%0b)", what, ref_queue_size, o_read_ready); end
+  end
+endtask
+
+// Drain the whole queue, check the sequence, and restore it to capacity.
+// A replace-only DUT can hold at most one element once drained -- replace pops
+// the head as it pushes -- so restoring means a reset and a fresh fill, which is
+// uniform across both builds anyway.
+task automatic drain_compare_refill(input string what);
+  begin
+    drain_and_compare(what);
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
 // One sub-case: start clean, fill, reset at the point under test, verify.
 task automatic reset_case(input operation_t op, input int delay, input int predrain, input string what);
   begin
@@ -516,6 +571,9 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 4: Stress Test (ENQ_ENA enabled)");
     for (int i = 0; i < stress_test_iters; i++) begin
+      // Periodic full-sequence check, so the stress loop is not judged on the
+      // head alone for its whole length.
+      if (i == stress_test_iters / 2) drain_compare_refill("mid-stress, ENQ_ENA=1");
       random_operation = $urandom_range(1, 3);
       case (random_operation)
         ENQUEUE: begin
@@ -612,6 +670,7 @@ task automatic test_enq_disabled();
 
     $display("\nTest Case 8: Stress Test (ENQ_ENA disabled)");
     for (int i = 0; i < stress_test_iters; i++) begin
+      if (i == stress_test_iters / 2) drain_compare_refill("mid-stress, ENQ_ENA=0");
       random_operation = $urandom_range(2, 3);
       case (random_operation)
         DEQUEUE: begin

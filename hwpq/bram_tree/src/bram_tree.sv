@@ -37,30 +37,18 @@
            is outside the supported input range.
 *******************************************************************************/
 
-package bram_tree_pkg;
-  localparam integer DATA_WIDTH = 16;
-  localparam integer QUEUE_SIZE = 7;
-  localparam integer TREE_DEPTH    = $clog2(QUEUE_SIZE + 1);
-  localparam integer NODES_NEEDED  = (1 << TREE_DEPTH) - 1;
-  localparam integer ADDRESS_WIDTH = $clog2(NODES_NEEDED);
-
-  // Define your structs here so all modules can see them
-  typedef struct packed {
-    logic active;
-    logic [DATA_WIDTH-1:0] value;
-    logic [ADDRESS_WIDTH-1:0] capacity;
-  } bram_tree_mem_t;
-
-  typedef struct packed {
-    logic [DATA_WIDTH-1:0] value;
-    logic [ADDRESS_WIDTH-1:0] position;
-    logic [ADDRESS_WIDTH-1:0] capacity;
-  } bram_tree_curr_t;
-endpackage
-
-import bram_tree_pkg::*;
-
-module bram_tree (
+module bram_tree #(
+    // QUEUE_SIZE and DATA_WIDTH were localparams in an in-file `bram_tree_pkg`,
+    // so this module built at exactly ONE size: `elaborate -parameter` cannot
+    // reach a localparam, and the Vivado parameter sweep could not drive it
+    // either -- which is why bram_tree is absent from the sweep results the rest
+    // of the library publishes. The two struct typedefs came with them, because
+    // their field widths depend on the parameters and a package typedef cannot.
+    //
+    // QUEUE_SIZE must be 2^k - 1, as for every tree design in this library.
+    parameter integer QUEUE_SIZE = 7,
+    parameter integer DATA_WIDTH = 16
+) (
     input  logic                  i_CLK,
     input  logic                  i_RSTn,
     // Inputs
@@ -72,6 +60,22 @@ module bram_tree (
     output logic                  o_read_ready,  // High if the heap is empty
     output logic [DATA_WIDTH-1:0] o_data   // Output data (Root node)
 );
+
+  localparam integer TREE_DEPTH    = $clog2(QUEUE_SIZE + 1);
+  localparam integer NODES_NEEDED  = (1 << TREE_DEPTH) - 1;
+  localparam integer ADDRESS_WIDTH = $clog2(NODES_NEEDED);
+
+  typedef struct packed {
+    logic active;
+    logic [DATA_WIDTH-1:0] value;
+    logic [ADDRESS_WIDTH-1:0] capacity;
+  } bram_tree_mem_t;
+
+  typedef struct packed {
+    logic [DATA_WIDTH-1:0] value;
+    logic [ADDRESS_WIDTH-1:0] position;
+    logic [ADDRESS_WIDTH-1:0] capacity;
+  } bram_tree_curr_t;
 
   typedef enum logic [3:0] {
     IDLE                    = 4'd0,
@@ -110,9 +114,28 @@ module bram_tree (
   bram_tree_mem_t     dout_a;
   bram_tree_mem_t     dout_b;
 
-  rams_tdp_rf_rf bram_inst (
-    .clka (i_CLK), .ena(1'b1), .wea(we_a), .addra(addr_a), .dia(din_a), .doa(dout_a),
-    .clkb (i_CLK), .enb(1'b1), .web(we_b), .addrb(addr_b), .dib(din_b), .dob(dout_b)
+  // The RAM now takes plain packed vectors rather than the struct type, because
+  // the struct is module-local once the widths are parameters. The conversions
+  // are explicit in both directions rather than relying on implicit struct/vector
+  // port coercion: this file has to compile under iverilog (CI) and Xcelium
+  // (CEPool) as well as Jasper, and an explicit cast is the one form all three
+  // agree on.
+  localparam integer MEM_WIDTH = $bits(bram_tree_mem_t);
+
+  logic [MEM_WIDTH-1:0] ram_din_a, ram_din_b, ram_dout_a, ram_dout_b;
+
+  assign ram_din_a = din_a;
+  assign ram_din_b = din_b;
+  assign dout_a    = bram_tree_mem_t'(ram_dout_a);
+  assign dout_b    = bram_tree_mem_t'(ram_dout_b);
+
+  rams_tdp_rf_rf #(
+      .WIDTH    (MEM_WIDTH),
+      .DEPTH    (NODES_NEEDED),
+      .CAP_WIDTH(ADDRESS_WIDTH)
+  ) bram_inst (
+    .clka (i_CLK), .ena(1'b1), .wea(we_a), .addra(addr_a), .dia(ram_din_a), .doa(ram_dout_a),
+    .clkb (i_CLK), .enb(1'b1), .web(we_b), .addrb(addr_b), .dib(ram_din_b), .dob(ram_dout_b)
   );
 
   always_ff @(posedge i_CLK or negedge i_RSTn) begin : fsm_seq

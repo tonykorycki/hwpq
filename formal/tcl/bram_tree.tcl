@@ -55,7 +55,20 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # QUEUE_SIZE must be 2^k - 1 for the tree designs. 7 gives TREE_DEPTH=3, which is
 # the smallest size with a non-trivial descent.
 #
-# DATA_WIDTH 3 is the library default and the starting point. Expect to need 2:
+# DATA_WIDTH 2, NOT the library default of 3. Sized up front so every run below
+# is like-for-like and converges inside the ceiling. At width 3 the three spec
+# properties that track a symbolic value through the whole queue -- a_no_loss,
+# a_head_is_max and a_head_present -- do not converge in 1800 s. Those are the
+# SAME three that forced width 2 on bram_tree_pipelined (PLAN 7.1), which is the
+# same architecture family, and this module carries a capacity field per node on
+# top of the payload so it has strictly more state.
+#
+# It is a real reduction in strength, not a free choice: with both sentinels
+# reserved the legal alphabet is 2**2 - 2 = TWO values, so an ordering property
+# can tell a maximum from a non-maximum but cannot distinguish degrees among
+# three or more payloads. Raising the ceiling instead is the wrong answer (F-18).
+#
+# Superseded note, kept because the reasoning was right:
 # bram_tree_pipelined did once its RAM model was sound, and this module carries a
 # capacity field per node ON TOP of the payload, so it has strictly more state
 # per node than the one that already needed the reduction. Width 2 leaves two
@@ -67,7 +80,7 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 # in formal/bind/bram_tree_bind.sv.
 elaborate -top hwpq_rst_bram_tree \
     -parameter QUEUE_SIZE 7 \
-    -parameter DATA_WIDTH 3
+    -parameter DATA_WIDTH 2
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK

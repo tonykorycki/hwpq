@@ -500,6 +500,92 @@ task automatic reset_case(input operation_t op, input int delay, input int predr
   end
 endtask
 
+//  Conventional ready/valid master (SIMULATION.md recommendation 6)
+//
+// Every task above samples ready with the command lines deasserted and only
+// then drives. None of them holds valid waiting for ready, which is what an
+// ordinary master does. bram_tree derived BOTH readies from the command inputs
+// (F-28), so ready and valid could never be high together: a master like this
+// deadlocks against it, and the polite tasks could not see that at all. It also
+// inflated the reported minimum latency by one cycle.
+
+// Hold valid until the DUT raises ready, then let the transfer happen.
+// Ready is sampled at the negedge with valid still asserted, so a DUT that
+// lowers ready in response to the request never comes back and the guard fires.
+task automatic master_op(input operation_t op, input logic [DATA_WIDTH-1:0] value);
+  int   guard;
+  logic ready;
+  begin
+    poll_settled();
+    case (op)
+      ENQUEUE: begin i_wrt = 1; i_read = 0; end
+      DEQUEUE: begin i_wrt = 0; i_read = 1; end
+      REPLACE: begin i_wrt = 1; i_read = 1; end
+    endcase
+    i_data = value;
+    // Settle the combinational cone BEFORE sampling. Reading a ready in the same
+    // timestep it was driven returns the stale value, which would make this
+    // master indistinguishable from the polite tasks -- it would never actually
+    // wait, and the deadlock it exists to detect would go unseen.
+    #1;
+
+    // Valid is now held. Wait for ready WITHOUT dropping it.
+    guard = 0;
+    ready = 0;
+    while (!ready) begin
+      // replace needs neither space nor data, only quiescence
+      ready = (op == ENQUEUE) ? o_write_ready :
+              (op == DEQUEUE) ? o_read_ready  : settled;
+      if (!ready) begin
+        @(negedge i_CLK);
+        guard++;
+        if (guard > SETTLE_TIMEOUT)
+          $fatal(1, "master_op: DUT never raised ready with valid held (op=%0d, o_write_ready=%0b o_read_ready=%0b) -- a ready derived from the request deadlocks a conventional master",
+                 op, o_write_ready, o_read_ready);
+      end
+    end
+
+    @(posedge i_CLK);  // ready was high at the preceding negedge: transfer here
+    @(negedge i_CLK);
+    clear_cmd();
+    poll_settled();
+  end
+endtask
+
+// The readies must be a function of registered state, not of the command lines.
+// Drive each command encoding BETWEEN clock edges, so nothing is captured, and
+// check neither ready moves. This is now a library-wide invariant -- bram_tree
+// was the last exception and F-28 fixed it -- so it is worth enforcing before
+// it drifts back.
+task automatic check_readies_independent(input string where);
+  logic wr0, rd0;
+  begin
+    poll_settled();
+    clear_cmd();
+    @(negedge i_CLK);
+    wr0 = o_write_ready;
+    rd0 = o_read_ready;
+
+    i_wrt = 1; i_read = 0; i_data = rand_value(); #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): an enqueue request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    i_wrt = 0; i_read = 1; #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): a dequeue request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    i_wrt = 1; i_read = 1; #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): a replace request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    clear_cmd();
+    @(negedge i_CLK);  // cross the posedge with the command lines clear
+  end
+endtask
+
 //  Impolite stimulus (SIMULATION.md recommendation 2)
 //
 // The tb walks up to every handshake violation and turns around: enqueue()
@@ -825,7 +911,65 @@ task automatic test_narrow_alphabet();
   end
 endtask
 
-// Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
+task automatic test_ready_valid_master();
+  begin
+    $display("\nTest Case 12: Conventional ready/valid master");
+
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    check_readies_independent("full");
+
+    for (int i = 0; i < stress_test_iters; i++) begin
+      // The model decides which command is legal, as everywhere else (F-2).
+      random_operation = ENQ_ENA ? $urandom_range(1, 3) : $urandom_range(2, 3);
+      if (random_operation == ENQUEUE && ref_queue_size == `TB_CAPACITY) random_operation = REPLACE;
+      if (random_operation == DEQUEUE && ref_queue_size == 0)            random_operation = REPLACE;
+
+      random_value = rand_value();
+      case (random_operation)
+        ENQUEUE: begin
+          master_op(ENQUEUE, random_value);
+          if (ENQ_ENA) begin
+            ref_queue[ref_queue_size] = random_value;
+            ref_queue_size++;
+            rsort();
+          end
+        end
+        DEQUEUE: begin
+          master_op(DEQUEUE, random_value);
+          for (int k = 0; k < ref_queue_size - 1; k++) ref_queue[k] = ref_queue[k+1];
+          ref_queue[ref_queue_size-1] = '0;
+          ref_queue_size--;
+        end
+        REPLACE: begin
+          master_op(REPLACE, random_value);
+          if (ref_queue_size == 0) begin
+            ref_queue[ref_queue_size] = random_value;
+            ref_queue_size++;
+          end else begin
+            ref_queue[0] = random_value;
+          end
+          rsort();
+        end
+      endcase
+
+      check_readies("after master op");
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Master op %0d: mismatch -> expected %d, got %d", random_operation, ref_queue[0], o_data); end
+
+      if (i % 20 == 0) check_readies_independent("mid-master");
+    end
+
+    drain_and_compare("after master traffic");
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
+// Terminal drain phase, runs for both ENQ_ENA modes.// Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
 // exercise the empty-state o_data branch and the replace-into-empty insert path, which
 // the fixed-length stress loop cannot reliably reach on the larger queues
 task automatic test_drain();
@@ -880,6 +1024,8 @@ initial begin
   test_impolite();
 
   test_narrow_alphabet();
+
+  test_ready_valid_master();
 
   test_drain();
 

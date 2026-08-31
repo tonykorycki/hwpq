@@ -101,6 +101,7 @@ module bram_tree_pipelined #(
   logic root_done, next_root_done;  // root written back - o_data is trustworthy
   logic cmd_dequeue, cmd_replace;
   logic accept_ok;                  // quiescent and initialised: may take a command
+  logic head_servable;              // the root holds data, not a placeholder
 
   // Reset fill. The BRAMs have no reset port, and the `initial` block in
   // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up value
@@ -553,7 +554,19 @@ module bram_tree_pipelined #(
   // when o_read_ready was gated on root_done.
   assign accept_ok = sift_done && !filling;
 
-  assign cmd_dequeue = !i_wrt && i_read && accept_ok && (queue_size != 0);
+  // Head-sentinel gate -- the F-1 containment the four register architectures
+  // already carry. A replace-only queue boots physically full of all-ones
+  // placeholders while queue_size reports 0, so during the fill phase the root can
+  // hold a placeholder the queue must not hand out as data.
+  //
+  // The term is on the COMMAND as well as on the port. Gating the port alone would
+  // leave cmd_dequeue accepting a dequeue that o_read_ready does not advertise --
+  // the ready/accept gap of F-7, pointing the other way -- and the containment is
+  // precisely that a contract-violating dequeue becomes inert rather than
+  // corrupting the size accounting.
+  assign head_servable = (level_0 != '1);
+
+  assign cmd_dequeue = !i_wrt && i_read && accept_ok && (queue_size != 0) && head_servable;
   assign cmd_replace = i_wrt && i_read && accept_ok;
 
   // The replace state does not execute until the cycle after the command is accepted, so sampling i_data there would read
@@ -579,7 +592,7 @@ module bram_tree_pipelined #(
   // Gating on sift_done costs nothing: no command could be accepted inside that
   // window anyway. The only thing lost is an early data-valid hint, and the
   // six-port interface gives no way for a caller to consume one.
-  assign o_read_ready  = !(queue_size == 0) && accept_ok;
+  assign o_read_ready  = !(queue_size == 0) && accept_ok && head_servable;
   assign o_data  = level_0;
 
 endmodule

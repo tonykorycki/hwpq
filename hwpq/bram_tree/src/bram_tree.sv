@@ -105,6 +105,29 @@ module bram_tree #(
   logic both_children_inactive;
   logic fsm_idle;
 
+  // Reset fill. The BRAM has no reset port, and the `initial` block in
+  // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up
+  // value and a formal tool ignores it outright (VERI-1060). So nothing restored
+  // the empty-tree fill: a reset arriving with data in the queue cleared
+  // queue_size and top_level but left every node holding its stale `active` flag
+  // and, worse, its stale `capacity`.
+  //
+  // Simulation cannot check this: the testbench resets once, at time zero. The
+  // defect needs a SECOND reset, which is why it went untested until
+  // a_reset_restores_fill was written -- it fails at 14 cycles.
+  //
+  // The sweep rewrites all NODES_NEEDED nodes on EVERY reset. Capacity is not a
+  // constant here: node i roots a subtree of ((NODES_NEEDED+1) >> level(i)) - 1
+  // with level(i) = floor(log2(i+1)), so rather than compute a log per node the
+  // sweep carries the level and steps it at the boundaries 1, 3, 7, ...
+  logic                            filling;
+  logic [ADDRESS_WIDTH-1:0]        fill_cnt;
+  logic [$clog2(TREE_DEPTH+1)-1:0] fill_level;
+  logic [ADDRESS_WIDTH+1:0]        fill_bound;
+  logic [ADDRESS_WIDTH-1:0]        fill_cap;
+
+  assign fill_cap = ADDRESS_WIDTH'(((NODES_NEEDED + 1) >> fill_level) - 1);
+
 
   // BRAM signals
   logic [ADDRESS_WIDTH-1:0] addr_a;
@@ -156,6 +179,28 @@ module bram_tree #(
     end
   end
 
+  // Reset fill sequencer. Runs after EVERY reset, not just the first. No command
+  // is accepted while it runs (fsm_idle is gated on !filling), so it cannot race
+  // the descent.
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin : fill_seq
+    if (!i_RSTn) begin
+      filling    <= 1'b1;
+      fill_cnt   <= '0;
+      fill_level <= '0;
+      fill_bound <= 'd1;
+    end else if (filling) begin
+      if (fill_cnt == ADDRESS_WIDTH'(NODES_NEEDED - 1)) begin
+        filling <= 1'b0;
+      end else begin
+        fill_cnt <= fill_cnt + 1'b1;
+        if ((fill_cnt + 1'b1) == fill_bound[ADDRESS_WIDTH-1:0]) begin
+          fill_level <= fill_level + 1'b1;
+          fill_bound <= (fill_bound << 1) + 'd1;
+        end
+      end
+    end
+  end
+
   always @* begin : fsm_comb
     next_state      = state;
     next_queue_size = queue_size;
@@ -174,6 +219,18 @@ module bram_tree #(
     children_out_of_range  = (child_idx_left > QUEUE_SIZE) || (child_idx_right > QUEUE_SIZE);
     both_children_inactive = !dout_a.active && !dout_b.active;
 
+    if (filling) begin
+      // Park the walk and drive the sweep. IDLE would otherwise decode whatever
+      // command is asserted, and the descent would run against a half-rewritten
+      // memory.
+      next_state     = IDLE;
+      addr_a         = fill_cnt;
+      we_a           = 1'b1;
+      din_a.active   = 1'b0;
+      din_a.value    = '0;
+      din_a.capacity = fill_cap;
+      we_b           = 1'b0;
+    end else begin
     case (state)
       IDLE: begin
         if (i_wrt && !i_read) begin // --- ENQUEUE ---
@@ -578,6 +635,7 @@ module bram_tree #(
         end
       end
     endcase
+    end
   end
 
   // The readies are a function of STATE ALONE. They used to be
@@ -636,7 +694,7 @@ module bram_tree #(
   // ready signals and that polling protocol were written in the same commit
   // (73d7b62), so the harness was shaped around this behaviour rather than
   // independently checking it.
-  assign fsm_idle      = (state == IDLE);
+  assign fsm_idle      = (state == IDLE) && !filling;
   assign o_write_ready = (queue_size != QUEUE_SIZE) && fsm_idle;
   assign o_read_ready  = (queue_size != 0)          && fsm_idle;
   assign o_data        = (queue_size == 0) ? 0 : top_level.value;

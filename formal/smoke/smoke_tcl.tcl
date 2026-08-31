@@ -13,6 +13,14 @@ proc check_assumptions {args} {}
 proc prove {args} {}
 proc report {args} {}
 
+# STUB_MD is what `get_design_info -list multiple_driven` returns: empty for a
+# clean design, a list of signal names for one with resolved drivers.
+proc get_design_info {args} {
+    global STUB_MD
+    if {[info exists STUB_MD]} { return $STUB_MD }
+    return {}
+}
+
 # STUB_TABLE maps an exact filter string to the property list it returns.
 proc get_property_list {args} {
     global STUB_TABLE
@@ -45,6 +53,11 @@ proc run_case {name expect_rc setup} {
         global STUB_TABLE
         set filter [lindex $args 1]
         if {[dict exists $STUB_TABLE $filter]} { return [dict get $STUB_TABLE $filter] }
+        return {}
+    }}
+    puts $fh {proc get_design_info {args} {
+        global STUB_MD
+        if {[info exists STUB_MD]} { return $STUB_MD }
         return {}
     }}
     puts $fh $setup
@@ -121,5 +134,33 @@ set all_ok [expr {$all_ok & [run_case "bounded-only rejected" 1 "
         {type {assert} status {bounded_proven bounded}} {a1} \
         {type {cover} status {covered proven}} {c1}\]
     $common"]}]
+
+# 8. a multiply-driven design -> 1, WITHOUT proving.
+#    The property table below is a clean sweep, so anything other than exit 1
+#    means the gate did not run or did not stop the run. F-21.
+set all_ok [expr {$all_ok & [run_case "multiply-driven design rejected" 1 "
+    set STUB_MD {bram_inst.ram\[0\] bram_inst.ram\[1\]}
+    set STUB_TABLE \[dict create \
+        {type {assert} status {proven}} {a1 a2} \
+        {type {cover} status {covered proven}} {c1}\]
+    $common"]}]
+
+# 9. the gate must not fire on a clean design, and must not swallow a real
+#    failure either -- an empty driver list with a cex still exits 1 for the cex.
+set all_ok [expr {$all_ok & [run_case "clean drivers, real cex still fails" 1 "
+    set STUB_MD {}
+    set STUB_TABLE \[dict create \
+        {type {assert} status {cex}} {a_plumbing} \
+        {type {cover} status {covered proven}} {c1}\]
+    $common"]}]
+
+# 10. a FAILING driver query is exit 2, not exit 0. This is the F-21 lesson in
+#     its most literal form: never let an unanswerable question read as "clean".
+set all_ok [expr {$all_ok & [run_case "driver query error is a hard error" 2 "
+    set STUB_TABLE \[dict create \
+        {type {assert} status {proven}} {a1} \
+        {type {cover} status {covered proven}} {c1}\]
+    $common
+    proc get_design_info {args} { error {ESW053: Invalid argument} }"]}]
 
 exit [expr {$all_ok ? 0 : 1}]

@@ -265,6 +265,111 @@ task automatic apply_reset();
   end
 endtask
 
+//  Reset during operation (SIMULATION.md recommendation 1)
+//
+// apply_reset() runs once, before any stimulus, so a defect that needs a reset
+// arriving while the queue holds data is unreachable by construction. bram_tree's
+// F-29 -- reset never restoring the node memory -- is exactly that shape, and no
+// amount of extra stimulus finds it. These tasks assert reset at points inside a
+// live operation and check the DUT comes back genuinely empty.
+//
+// Formal (F-15) proves every proven architecture recovers from a reset at any
+// reachable moment, so this phase is expected to pass everywhere. A failure here
+// is a real finding.
+
+// After a reset the model holds nothing in BOTH builds: an ENQ_ENA=0 DUT boots
+// physically full of '1 placeholders but logically empty.
+task automatic model_reset();
+  begin
+    ref_queue      = {};
+    ref_queue_size = 0;
+  end
+endtask
+
+// Fill a freshly reset queue to capacity.
+// ONLY valid immediately after model_reset(): the ENQ_ENA=0 arm assumes every
+// slot still holds a placeholder, and it must fill completely before any read,
+// because a resident placeholder outranks the payload and gates o_read_ready
+// low (F-1, the fill-before-read contract).
+task automatic refill_after_reset();
+  begin
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
+      random_value = $urandom_range(1, 1023);
+      if (ENQ_ENA) begin
+        enqueue(random_value);
+      end else begin
+        ref_queue.push_back(random_value);
+        ref_queue_size++;
+        replace_init(random_value);
+      end
+    end
+    rsort();
+    poll_settled();
+  end
+endtask
+
+// Assert reset `delay` negedges after a command is captured, so it lands INSIDE
+// the settle window rather than between operations. delay=0 is the negedge
+// immediately following the capture edge.
+task automatic reset_during(input operation_t op, input int delay);
+  begin
+    poll_settled();
+    case (op)
+      ENQUEUE: begin i_wrt = 1; i_read = 0; i_data = $urandom_range(1, 1023); end
+      DEQUEUE: begin i_wrt = 0; i_read = 1; i_data = 0;                       end
+      REPLACE: begin i_wrt = 1; i_read = 1; i_data = $urandom_range(1, 1023); end
+    endcase
+    @(posedge i_CLK);  // the DUT captures the command here
+    @(negedge i_CLK);
+    clear_cmd();
+    repeat (delay) @(negedge i_CLK);
+    apply_reset();
+    model_reset();
+  end
+endtask
+
+// A reset must leave the queue with nothing to hand back, whatever it was doing.
+task automatic check_reset_emptied(input string what);
+  begin
+    poll_settled();
+    assert (!o_read_ready)
+    else begin error_count++; $error("Reset (%s): queue still advertises data after reset", what); end
+  end
+endtask
+
+// Refill and drain the whole queue in order. A reset that left stale nodes behind
+// shows up here and nowhere else -- the head alone cannot distinguish a clean heap
+// from one still holding pre-reset elements.
+task automatic refill_and_drain_check(input string what);
+  begin
+    refill_after_reset();
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
+      dequeue();
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Reset (%s): drain step %0d -> expected %d, got %d", what, i, ref_queue[0], o_data); end
+      else
+        assert (o_data == '0)
+        else begin error_count++; $error("Reset (%s): drain step %0d, now empty -> expected 0, got %d", what, i, o_data); end
+    end
+    assert (!o_read_ready)
+    else begin error_count++; $error("Reset (%s): queue did not empty after %0d dequeues", what, QUEUE_SIZE); end
+  end
+endtask
+
+// One sub-case: start clean, fill, reset at the point under test, verify.
+task automatic reset_case(input operation_t op, input int delay, input int predrain, input string what);
+  begin
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    for (int i = 0; i < predrain; i++) dequeue();
+    reset_during(op, delay);
+    check_reset_emptied(what);
+    refill_and_drain_check(what);
+  end
+endtask
+
 //  Test programs
 task automatic test_enq_enabled();
   begin
@@ -426,6 +531,34 @@ task automatic test_enq_disabled();
   end
 endtask
 
+task automatic test_reset_midstream();
+  begin
+    $display("\nTest Case 9: Reset during operation");
+
+    // Quiescent reset with the queue full.
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    apply_reset();
+    model_reset();
+    check_reset_emptied("full, quiescent");
+    refill_and_drain_check("full, quiescent");
+
+    // Reset landing inside a live operation, at three depths into the settle.
+    for (int d = 0; d < 3; d++) begin
+      int delay;
+      delay = (d == 2) ? 3 : d;
+      reset_case(DEQUEUE, delay, 0, $sformatf("mid-dequeue, delay %0d", delay));
+      reset_case(REPLACE, delay, 0, $sformatf("mid-replace, delay %0d", delay));
+      // An enqueue on a full queue is refused, so make room first. ENQ_ENA=0
+      // DUTs have no enqueue datapath and a half-filled one sits behind the
+      // fill-before-read contract, so this arm is enqueue-capable builds only.
+      if (ENQ_ENA)
+        reset_case(ENQUEUE, delay, QUEUE_SIZE / 2, $sformatf("mid-enqueue, delay %0d", delay));
+    end
+  end
+endtask
+
 // Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
 // exercise the empty-state o_data branch and the replace-into-empty insert path, which
 // the fixed-length stress loop cannot reliably reach on the larger queues
@@ -475,6 +608,8 @@ initial begin
 
   if (ENQ_ENA) test_enq_enabled();
   else         test_enq_disabled();
+
+  test_reset_midstream();
 
   test_drain();
 

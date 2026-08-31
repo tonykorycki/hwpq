@@ -36,7 +36,10 @@ module hwpq_bram_tree_aux #(
     input logic                 i_CLK,
     input logic                 i_init_RSTn,
     input logic                 i_RSTn,
-    input logic [MEM_WIDTH-1:0] ram [NODES_NEEDED-1:0]
+    input logic [MEM_WIDTH-1:0]     ram [NODES_NEEDED-1:0],
+    input logic [ADDRESS_WIDTH-1:0] top_capacity,
+    input integer                   queue_size,
+    input logic                     fsm_idle
 );
 
   // The capacity a node powers up holding is the size of the subtree it roots.
@@ -118,5 +121,32 @@ module hwpq_bram_tree_aux #(
   // releases -- comfortably inside the window, with no reset interrupting.
   a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       $rose(i_RSTn) |-> ##[1:NODES_NEEDED+2] fill_intact);
+
+  // ---------------------------------------------------------------------------
+  // THE ROOT CAPACITY INVARIANT.
+  //
+  // Written to DECIDE a question rather than to record an answer. The replace
+  // arm computes `top_level.capacity + 1` on an empty queue, where capacity is
+  // QUEUE_SIZE and the field is ADDRESS_WIDTH bits -- 7 + 1 truncates to 0. The
+  // direction is also the dequeue arm's, where an element LEAVES and free space
+  // grows, whereas a replace on an empty queue INSERTS one. Both look wrong on
+  // inspection.
+  //
+  // But inspection is not evidence, and the full spec proves green with that code
+  // in place, so the question is whether anything observable depends on it. The
+  // field is NOT dead: top_capacity seeds curr.capacity, which is written into
+  // din_*.capacity, stored, and read back as dout_*.capacity -- which gates every
+  // arm of the enqueue descent. So a corrupt value has a live path.
+  //
+  // WHAT PASSING LOOKS LIKE: when the design is idle, the root's free-space count
+  // is exactly the space that is free -- QUEUE_SIZE minus the number of elements
+  // held. Reset gives 7 == 7-0; an enqueue into an empty queue gives 6 == 7-1. A
+  // correct design maintains it at every idle point.
+  //
+  // If this FAILS, the replace-on-empty arithmetic is a real defect and gets the
+  // property/fix/retire treatment. If it PROVES, the code is merely odd and the
+  // fix should be dropped rather than carried on the strength of a code reading.
+  a_root_capacity_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      fsm_idle |-> (top_capacity == ADDRESS_WIDTH'(QUEUE_SIZE - queue_size)));
 
 endmodule

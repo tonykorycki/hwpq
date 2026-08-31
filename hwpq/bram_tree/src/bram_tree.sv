@@ -25,6 +25,8 @@
       both_children_inactive.
     - Factored the repeated "(state == IDLE) && !(i_read || i_wrt)" term
       used by all three ready/valid outputs into idle_and_no_new_request.
+      The "&& !(i_read || i_wrt)" half was REMOVED 2026-08-30 and the term
+      renamed fsm_idle -- see the comment at the ready assignments.
     - Replaced all `'{field: value, ...}` assignment-pattern struct literals
       with field-by-field assignment (next.value = ...; next.position = ...;
       etc.) for Icarus Verilog compatibility. Plain '0 fills are unaffected.
@@ -101,7 +103,7 @@ module bram_tree #(
 
   logic children_out_of_range;
   logic both_children_inactive;
-  logic idle_and_no_new_request;
+  logic fsm_idle;
 
 
   // BRAM signals
@@ -578,9 +580,65 @@ module bram_tree #(
     endcase
   end
 
-  assign idle_and_no_new_request = (state == IDLE) && !(i_read || i_wrt);
-  assign o_write_ready = (queue_size != QUEUE_SIZE) && idle_and_no_new_request;
-  assign o_read_ready  = (queue_size != 0)           && idle_and_no_new_request;
+  // The readies are a function of STATE ALONE. They used to be
+  //
+  //     assign idle_and_no_new_request = (state == IDLE) && !(i_read || i_wrt);
+  //
+  // so asserting either command drove both readies low in the same cycle. Two
+  // consequences, one practical and one that made the module unprovable:
+  //
+  //   Ready and valid could never be high together, so a conventional master --
+  //   assert valid, hold it, wait for ready -- deadlocks, because holding valid
+  //   is exactly what forces ready low.
+  //
+  //   Fed to the formal spec's `settled = o_write_ready || o_read_ready` and its
+  //   am_no_cmd_while_busy, the assumption read "if a command is issued then no
+  //   command is issued". Jasper therefore issued none: at 26adf6d the run
+  //   reported 9 asserts proven with 15 of 20 covers UNREACHABLE, including all
+  //   three command covers. Every one of those proofs was vacuous.
+  //
+  // Removing the term cannot change what the design DOES: the acceptance path
+  // never reads the readies. The FSM accepts inside `case (state) IDLE: if
+  // (i_wrt && !i_read)`, branching on the state and the raw command bits. This
+  // changes only what the ports advertise, and simulation confirms it: every
+  // functional check passes and the operation counts and MAXIMA are unchanged at
+  // both QUEUE_SIZE 7 and 15.
+  //
+  // Two measured numbers DO move, and they move because this fix corrects them.
+  // The minimum enqueue and replace latency drops from 2 cycles to 1:
+  //
+  //     QUEUE_SIZE=7    enqueue min 2 -> 1, mean 3.59 -> 3.50
+  //                     replace min 2 -> 1, mean 2.65 -> 2.62
+  //                     dequeue UNCHANGED
+  //
+  // Dequeue is the tell. An enqueue or replace on an EMPTY queue sets
+  // next_state = IDLE and really does finish in one cycle; a dequeue always goes
+  // to DEQUEUE_COMPARE_ROOT and never can. Exactly the two ops that can be
+  // single-cycle are the two whose minimum moved.
+  //
+  // The old figure was a measurement artifact caused by this very defect. The
+  // testbench calls clear_cmd() and then poll_settled() in the same timestep;
+  // while a ready depended combinationally on i_wrt, that read could take the
+  // stale pre-clear value, see !settled, and burn one extra negedge before
+  // returning. A multi-cycle op is genuinely busy then, so the wait was absorbed
+  // and only the minima were inflated. With the readies derived from registered
+  // state the read is stable and the reported latency is the real one.
+  //
+  // NOTE FOR ANY PUBLISHED NUMBER: bram_tree's minimum enqueue/replace latency
+  // was over-reported by one cycle before this commit. The design did not get
+  // faster.
+  //
+  // Simulation could never have caught the original, and that is structural
+  // rather than bad luck. The shared testbench polls `settled` on the negedge
+  // with both commands cleared, then asserts a command -- so it only ever samples
+  // a ready in a cycle where no command is asserted, which is precisely where the
+  // removed term was harmlessly 1. It never holds valid waiting for ready. The
+  // ready signals and that polling protocol were written in the same commit
+  // (73d7b62), so the harness was shaped around this behaviour rather than
+  // independently checking it.
+  assign fsm_idle      = (state == IDLE);
+  assign o_write_ready = (queue_size != QUEUE_SIZE) && fsm_idle;
+  assign o_read_ready  = (queue_size != 0)          && fsm_idle;
   assign o_data        = (queue_size == 0) ? 0 : top_level.value;
   assign empty          = (queue_size == 0);
 endmodule

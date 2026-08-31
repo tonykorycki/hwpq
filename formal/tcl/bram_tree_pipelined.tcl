@@ -112,18 +112,39 @@ set HWPQ_ALLOW_BOUNDED 0
 # the defect was fixed and the assumption should be retired; if a new one appears,
 # something regressed. Either way the run fails and says which.
 #
-# a_reset_restores_fill is expected in BOTH modes: it is not scoped out by any
-# assumption, because the defect it names is what CH-6 deliberately leaves
-# reachable. Per F-13 it is also the RIGHT thing to expect -- it names the
-# mechanism, rather than being whichever downstream occupancy assert falls over.
+# a_reset_restores_fill USED TO be expected here, in both modes, because nothing
+# restored the placeholder fill and CH-6 deliberately left a later reset free so
+# that defect stayed reachable. That is F-25, fixed at e2e0111 and 8b67c01; the
+# property now PROVES, as one of the twenty, and CH-6 is retired with it. The
+# expectation went with it.
 #
-# NOTHING is expected to fail yet. This commit binds the module and reports what
-# the shared spec actually finds; the failures below are the measurement, not a
-# prediction, and each is fixed or consciously recorded in a later commit. An
-# expected-cex list belongs at the END of that work -- it is how a defect that is
-# STAYING gets parked (see register_array_enq0.tcl and F-1), not a running tally
-# of work in progress.
-set HWPQ_EXPECT_CEX {}
+# What is expected instead is weaker evidence than that was, and the difference
+# is worth stating rather than glossing. a_reset_restores_fill named its own
+# mechanism. a_occ_empty_agrees and a_no_loss are downstream occupancy asserts
+# that happen to be what falls over -- exactly the shape F-13 warns about.
+#
+# The end of that work has now arrived, so the list is populated. This module
+# carries the F-1 head-sentinel gate (a91849f) and therefore inherits the F-1
+# RESIDUAL that the four register architectures have: with ASSUME_FILL_FIRST
+# dropped -- the only thing --ungated drops here -- a queue holding placeholders
+# during the fill phase holds elements it will not admit to, and the two
+# occupancy properties say so. CH-4 is the hole; F-1 is why it is not being
+# closed.
+#
+# Measured at a3c9da6: both fire at 24-30 cycles. The register modules fire the
+# same two names at 2 and 4, and the difference is this module's ~9-cycle reset
+# sweep plus 6-18 cycles per operation -- not a different defect. Per F-13,
+# HWPQ_EXPECT_CEX matches on NAMES and cannot tell a changed mechanism from an
+# unchanged one, so the depths above are recorded here as the thing to re-check
+# if this run ever starts passing or failing differently.
+#
+# Leaving this empty is what made `formal/run.sh --all --ungated` red at HEAD
+# while `--all` was green. Only the first mode was being run.
+if {$HWPQ_UNGATED} {
+    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss}
+} else {
+    set HWPQ_EXPECT_CEX {}
+}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

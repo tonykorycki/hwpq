@@ -233,7 +233,16 @@ module bram_tree #(
     end else begin
     case (state)
       IDLE: begin
-        if (i_wrt && !i_read) begin // --- ENQUEUE ---
+        // WHAT PASSING LOOKS LIKE: a_no_enq_when_full says the DUT must not accept
+        // an enqueue it does not advertise. With this guard the arm does not fire
+        // on a full queue, the chain falls through, and the command is inert --
+        // the same F-8 principle as the dequeue guard below. Without it the arm
+        // ran the descent and drove next_queue_size past QUEUE_SIZE.
+        // Demonstrated at the previous commit: cex in 32 cycles, which is roughly
+        // the cost of filling a 7-element queue before the violation is even
+        // expressible. Simulation cannot reach it -- the testbench prints
+        // "Queue full, skipping enqueue" and declines to issue the command.
+        if (i_wrt && !i_read && (queue_size != QUEUE_SIZE)) begin // --- ENQUEUE ---
           if (queue_size == 0) begin
             next_top_level.active   = 1'b1;
             next_top_level.value    = i_data;

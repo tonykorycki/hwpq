@@ -76,4 +76,47 @@ module hwpq_bram_tree_aux #(
   // design silently and every assert would prove for free.
   c_fill_intact_reachable : cover property (@(posedge i_CLK) fill_intact);
 
+  // ---------------------------------------------------------------------------
+  // THE RESET CONTRACT -- the property this module never had.
+  //
+  // CH-6 pins the memory only at cycle 0, so a LATER reset leaves it free. That
+  // is deliberate: it is what makes this property able to fail. The BRAM has no
+  // reset port and its `initial` fill is simulation-only (VERI-1060), so nothing
+  // restores the empty-tree contents. A reset arriving with data in the queue
+  // clears queue_size and top_level while every node keeps its stale `active`
+  // flag and stale `capacity`.
+  //
+  // PHRASING, and the two wrong ways to write this.
+  //
+  //   `!i_RSTn |=> fill_intact` is F-20: no BRAM-backed design can clear a memory
+  //   in one cycle, so it stays red against a correct fix and is useless as an
+  //   acceptance test.
+  //
+  //   `idle && no command |-> fill_intact` is worse, and was committed here for
+  //   one run before being caught. It says the memory is empty whenever the queue
+  //   is idle -- which is FALSE for any correct design holding data. It failed at
+  //   4 cycles for exactly that reason: a populated queue, behaving correctly.
+  //
+  // The satisfiable form is a BOUNDED RESPONSE to reset deassertion: within
+  // NODES_NEEDED+2 cycles of the reset releasing, the fill is back. A sweep that
+  // writes one node per cycle meets it with room to spare; a design that never
+  // rewrites the memory cannot. Ask what PASSING would look like before keeping a
+  // property that fails.
+  //
+  // The first reset cannot expose the defect -- CH-6 pins the memory at cycle 0,
+  // so the fill is trivially intact there. It takes a LATER reset, after data has
+  // been written, which is precisely what CH-6's cycle-0 scoping leaves reachable.
+  // `disable iff (!i_RSTn)` is load-bearing, and omitting it cost one run. Without
+  // it a reset arriving DURING the sweep restarts the fill, while the obligation
+  // from the first $rose still demands completion inside the original window --
+  // so the property failed at 39 cycles on a design whose sweep is correct. The
+  // guard aborts a pending obligation when a new reset lands, which is the
+  // standard idiom and what every property in hwpq_spec.sv already does.
+  //
+  // WHAT PASSING LOOKS LIKE: the sweep writes one node per cycle for
+  // NODES_NEEDED cycles, so fill_intact holds by NODES_NEEDED+1 after the reset
+  // releases -- comfortably inside the window, with no reset interrupting.
+  a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
+      $rose(i_RSTn) |-> ##[1:NODES_NEEDED+2] fill_intact);
+
 endmodule

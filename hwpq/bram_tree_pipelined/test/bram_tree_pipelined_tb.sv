@@ -126,4 +126,46 @@ module bram_tree_pipelined_tb;
     end
   endtask
 
+
+  // X on the sift comparator inputs -- a tripwire on the deepest-level override.
+  //
+  // NOT a defect detector, and the distinction matters. F-23 -- the six
+  // out-of-range child accesses this watches for -- is RETRACTED. Reverting
+  // fe40af5 at HEAD leaves formal fully green (20 proven / 0 cex), leaves this
+  // suite green with byte-identical cycle histograms, and synthesises 13 LUTs
+  // SMALLER with identical sequential state. Nothing misbehaves, in simulation,
+  // in proof, or in silicon.
+  //
+  // What makes the X harmless is an override at the end of the sift arm, present
+  // since before the guards existed:
+  //
+  //   if (parent_lvl == TREE_DEPTH - 1) begin
+  //     next_parent_lvl = 'd0; next_parent_idx = 'd0;
+  //     next_we_a[parent_lvl] = 1'b0; next_we_b[parent_lvl] = 1'b0;
+  //
+  // It runs AFTER the X-poisoned branch logic and overwrites it, so every tainted
+  // path is either discarded or aimed at storage that does not exist. That
+  // override is doing all of the work, and nothing else in this repository
+  // watches it -- edit it and the X goes live with no other check reliably
+  // objecting. This monitor is a tripwire on that one structural dependency.
+  //
+  // Its whole value is that it discriminates, and the numbers are measured rather
+  // than argued: at QUEUE_SIZE=15 the walk spends 1452 cycles at the deepest
+  // level either way, and the count below is 0 with the guards and 2159 with
+  // `git revert --no-commit fe40af5`. Measured 2026-09-01.
+  //
+  // Reported once. The condition holds for thousands of cycles once true, and the
+  // run must fail with a readable log rather than 2159 identical lines.
+  bit btp_x_reported = 0;
+
+  always @(posedge i_CLK) begin
+    if (i_RSTn && !btp_x_reported &&
+        ($isunknown(u_dut.comp_left_child_in) || $isunknown(u_dut.comp_right_child_in))) begin
+      btp_x_reported = 1;
+      error_count++;
+      $error("Sift: comparator child inputs are X {left=%h, right=%h} at parent_lvl=%0d -- the walk is comparing against undefined data",
+             u_dut.comp_left_child_in, u_dut.comp_right_child_in, u_dut.parent_lvl);
+    end
+  end
+
 endmodule

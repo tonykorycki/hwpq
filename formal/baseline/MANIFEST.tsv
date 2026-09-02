@@ -1,0 +1,92 @@
+# Baseline runs -- what each module looked like BEFORE any formal-driven fix,
+# measured with TODAY's harness.
+#
+# Method -- four lines, nothing to remember:
+#
+#   W=$(mktemp -d) && git worktree add $W --detach 61f0575 && cd $W
+#   git checkout f667f74 -- formal/          # today's harness onto the old RTL
+#   git cherry-pick --no-commit <enabling...>   # in the order this table lists
+#   formal/run.sh <config>                   # BRAM: baseline/<config>
+#
+# Cherry-pick ONLY the named commits, in order. Never hand-edit: an assembled state
+# that never existed is how F-26's investigation went wrong.
+#
+# THE BRAM CONFIGS LIVE IN A SUBFOLDER. formal/{bind,tcl}/baseline/ holds
+# black-box-only variants, invoked as `formal/run.sh baseline/bram_tree_baseline`.
+# run.sh needs no change: it builds formal/tcl/${m}.tcl, and its outdir is mkdir -p,
+# so artifacts land in formal/jgproject/baseline/<config>/, away from the main suite.
+# The subfolder is also why `run.sh --all` still sees exactly 13 configs -- its glob
+# is formal/tcl/*.tcl and is NOT recursive. Keeping variant families in a subfolder
+# is what stops them contaminating the 13/13 number HANDOFF quotes.
+#
+# NOTE ON LABELLING: a red row is a SHORTCOMING, not necessarily a defect. Some are
+# contract questions (F-1/CH-4) where the disposition was containment, not repair.
+# The manifest records what the run showed and the disposition separately.
+#
+# BASELINE = 61f0575 (2026-08-19), the last commit before the first formal-driven
+# RTL fix (52ae5a9). Every module already carries the uniform six-port interface.
+#
+# HONESTY CAVEAT, to be repeated in the write-up: this is NOT "the design as
+# originally written". At 2c8a4d6 the modules exposed o_full/o_empty -- different
+# signals, different paths. The uniform interface arrived at e7c20ad, which is the
+# formal effort's OWN work. The claim this table supports is "the design as it
+# stood when verification began, once a common interface existed".
+#
+# enabling: comma-separated commits, IN CHERRY-PICK ORDER. "-" means none.
+# whitebox: whether the aux addenda can bind at baseline at all. BLACK-BOX ONLY IS
+#   A DELIBERATE SCOPE DECISION for this table, not a shortfall -- the white-box
+#   results belong to the full findings write-up. Where the aux happens to bind
+#   (the register family) it is included because it costs nothing; where it cannot
+#   (the BRAM modules, whose aux watches signals the fixes created) the row simply
+#   says so. Do not read a clean black-box row as "the module was sound": the
+#   sweep measured F-32 as caught by exactly one property, and it is white-box.
+#
+# ENABLING COMMITS come in three kinds, and the write-up should distinguish them:
+#   infrastructure  - fa7b2c9, parameterisation so the proof can be sized
+#   measurability   - 52ae5a9 (F-6, elaboration), 26adf6d/bbc3ef2 (F-21, the harness
+#                     refuses a multiply-driven design) -- each is ITSELF a finding
+#   unblocking      - 406c076 (F-28). A finding fixed to make OTHER findings visible.
+#                     A row carrying this is no longer "the baseline"; it is the
+#                     baseline after the blocking defect was cleared. Label it.
+#
+#
+# COLUMN POSITIONS ARE ALIGNED WITH mutations/SWEEP.tsv ON PURPOSE: field 1 is the
+# CLI key, field 5 is the ref --replay rebuilds at, field 7 is the machine-checked
+# expectation, field 8 is prose. That alignment is what lets regress.sh share its
+# dispatch, control runs, drift warning and verdict parsing across both manifests
+# instead of growing a second slightly-different copy of them (see F-13).
+#
+# ref (field 5) MEANS SOMETHING DIFFERENT PER MANIFEST, and this is the one place
+# the two modes genuinely diverge:
+#   SWEEP    the commit the worktree is CHECKED OUT at   (the design moved)
+#   BASELINE the commit formal/ is OVERLAID from         (the instrument moved)
+# In baseline mode the checkout is ALWAYS pinned to the baseline commit in field 3.
+# If it ever follows field 5 instead, the row silently measures TODAY's RTL while
+# claiming to measure the pre-verification design -- it runs, it looks plausible,
+# and it is the F-26 assembled-configuration error wearing a new coat.
+#
+# expect vocabulary (same as SWEEP, plus one extension):
+#   clean                    0 cex and 0 unreachable covers; a verdict block MUST exist
+#   cex:a,b,c                ALL named leaves must fire -- not "at least one"
+#   cover-unreachable:<n>    vacuity, pinned to a count
+#
+# WHY cex TAKES A LIST HERE. A baseline row's whole value is the BREADTH of what
+# the harness still sees. Pinning one leaf would let systolic_array quietly drop
+# from five counterexamples to one and still report CAUGHT, which is precisely the
+# weakened-spec case this table exists to detect.
+#
+#row	config	baseline	enabling	harness	whitebox	expect	notes
+register_array	register_array	61f0575	-	f667f74	aux n/a	clean	No defect at baseline. Also clean --ungated.
+register_array_enq0	register_array_enq0	61f0575	-	f667f74	aux n/a	cex:a_head_not_placeholder	F-1. NOT a defect: fill-before-read is a documented CONTRACT (CH-4) and F-1's disposition is containment. What fires is the PORT contradicting that contract.
+register_array_pipelined	register_array_pipelined	61f0575	-	f667f74	aux n/a	clean	9 proven, 20 covers
+register_array_pipelined_enq0	register_array_pipelined_enq0	61f0575	-	f667f74	aux n/a	cex:a_head_not_placeholder	same F-1 port/contract disagreement
+register_tree	register_tree	61f0575	-	f667f74	aux BINDS	clean	11 proven, 24 covers; the white-box heap invariant binds and proves at baseline
+register_tree_enq0	register_tree_enq0	61f0575	-	f667f74	aux BINDS	cex:a_head_not_placeholder	same F-1 port/contract disagreement
+register_tree_pipelined	register_tree_pipelined	61f0575	-	f667f74	aux BINDS	clean	11 proven, 24 covers
+register_tree_pipelined_enq0	register_tree_pipelined_enq0	61f0575	-	f667f74	aux BINDS	cex:a_head_not_placeholder	same F-1 port/contract disagreement
+systolic_array	systolic_array	61f0575	52ae5a9	f667f74	aux BINDS	cex:a_occ_empty_agrees,a_occ_full_agrees,a_no_loss,a_head_is_max,a_head_present	F-7 and F-8 both present at once, all five black-box. ENABLING IS ITSELF A FINDING: without 52ae5a9 nothing elaborates (F-6, VERI-1216). NOTE: F-7's signature alone is a strict SUBSET of F-8's, so this row cannot tell the two apart -- only the one-at-a-time sweep can.
+systolic_array_gap	systolic_array_gap	61f0575	52ae5a9	f667f74	aux BINDS	cex:a_ready_matches_accept	the F-7 shape stated white-box: the port advertising what the accept condition would refuse
+systolic_array_clobber	systolic_array_clobber	61f0575	52ae5a9	f667f74	aux BINDS	cex:a_no_clobber,a_no_ghost_cells	F-8's damage: a refused write corrupting IB[0], and cells holding data nothing put there
+bram_tree_pipelined	baseline/bram_tree_pipelined_baseline	61f0575	bbc3ef2	f667f74	NO -- black-box only	cex:a_head_not_placeholder,a_occ_bounded,a_occ_empty_agrees,a_no_loss,a_head_is_max,a_head_present	6 of 8 black-box asserts red (2 proven), 17 covers reachable. ENABLING IS ITSELF A FINDING: without bbc3ef2 (F-21) the harness REFUSES the design, so there is no measurement at all.
+bram_tree	baseline/bram_tree_baseline	61f0575	fa7b2c9,26adf6d	f667f74	NO -- black-box only	cover-unreachable:15	THE BASELINE PROPER. 9 asserts 'proven', 0 cex, 5 covers reachable, FIFTEEN unreachable -- F-28 in its original habitat, the whole assert table green and MEANINGLESS. The 15 matches FINDINGS' F-28 record exactly, which is what established that the HEAD mutation's 13 was reproduced-vs-historical rather than an error. Do not delete this row in favour of stage 2.
+bram_tree_stage2	baseline/bram_tree_baseline	61f0575	fa7b2c9,26adf6d,406c076	f667f74	NO -- black-box only	cex:a_progress,a_no_enq_when_full,a_no_deq_when_empty,a_occ_bounded,a_occ_empty_agrees,a_occ_full_agrees,a_no_loss,a_head_is_max,a_head_present	NOT THE BASELINE -- the baseline once F-28 was cleared. 0 proven, 9 cex, 20 covers all reachable. 406c076 is an 'unblocking' enabling commit: a finding fixed to reveal other findings. Pair with the row above: all-green-and-vacuous -> all-red-and-true, from one ready signal.

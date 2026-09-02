@@ -1,0 +1,82 @@
+# Mutation sweep -- does the suite still catch each fix's defect at HEAD?
+#
+# Method: worktree at HEAD, revert the fix (or apply mutations/<finding>.patch),
+# run the module, compare against the all-green CONTROL run. Every row MEASURED,
+# nothing predicted. The control at f667f74 is 13/13 PASS, 0 cex and 0 UNREACHABLE
+# everywhere, so any red below is caused by the mutation.
+#
+# "Baseline" is NOT this. In this project it means the pre-verification RTL at
+# 61f0575 -- see formal/baseline/MANIFEST.tsv, a different measurement with a
+# different question. Nothing in this file uses the word.
+#
+# class   rtl | harness   WHAT is being mutated.
+#
+#         Fifteen rows mutate the DESIGN and ask whether the instrument still
+#         sees the defect. F-14 is the only row that mutates the INSTRUMENT and
+#         asks whether it is load-bearing at all -- and that is the effort's own
+#         thesis, so the column exists to keep the distinction visible rather
+#         than to sort the file. F-14 and F-28 are a matched pair: identical
+#         verdict shape (asserts all green, a cover goes unreachable), one from
+#         the design side and one from the instrument side.
+#
+# head    the HEAD each row's outcome was MEASURED at.
+#
+#         The sweep runs at current HEAD by design -- "does the suite still catch
+#         this" is a question about the code as it stands, not a historical
+#         replay. So as HEAD moves past a row's recorded one the driver WARNS but
+#         still runs, and a changed outcome is then a real result rather than
+#         drift. Use `regress.sh --replay ...` to rebuild a row at the HEAD it
+#         was recorded at, which is what makes the numbers below reproducible
+#         rather than merely dated.
+#
+# method  revert | patch
+#
+# expect  cex:<leaf>            named property must be in the counterexample list
+#         cover-unreachable     one or more covers must come back UNREACHABLE (vacuity)
+#         elab-fail:<code>[:<n>]  the run must die BEFORE the property table, citing
+#                               <code>; with <n>, exactly n distinct matching lines.
+#                               harness-gate is the same class with the
+#                               multiply-driven signature and no count.
+#         harness-gate          run aborts on the multiple-driver check, no property table
+#         timeout               proof stops converging (weakest: names no property)
+#         none                  NOTHING detects it -- see notes. A `none` row is not a
+#                               non-result: it pins a measured green, so a future change
+#                               that starts detecting it reports *** CHANGED ***.
+#
+#                               All three `none` rows (F-23, F-24, F-26) are RETRACTED
+#                               findings, and that is not a coincidence -- a retraction
+#                               is exactly what "the suite is green and that is correct"
+#                               looks like from inside the sweep. These rows are the
+#                               tripwire on each retraction: they are the only thing that
+#                               would notice if a future change started detecting a defect
+#                               the record says is not there. Leave them out and each
+#                               retraction is just a paragraph.
+#
+# THE DRIVER CHECKS THE expect FIELD ONLY, and that is deliberate -- decided
+# 2026-09-01, not an oversight. The proven/cex counts in the notes are prose and
+# are not parsed, so a row can drift from 6 proven/3 cex to 2 proven/7 cex and
+# still report CAUGHT. This file is a way to REPRODUCE an issue, not a golden
+# transcript of a run: what a row promises is that the named detector still
+# fires, and pinning the surrounding counts would fail the sweep on unrelated
+# proof progress. Read the counts as context for what you should expect to see,
+# not as an assertion.
+#
+#finding	fix	module	class	head	method	expect	notes
+F-6	52ae5a9	systolic_array	rtl	f667f74	revert	elab-fail:VERI-1216:2	TWO distinct VERI-1216 errors, elaboration does not complete, NO property table at all. Reconstructed, not checked out: no systolic_array.tcl existed at 52ae5a9^, so there is no historical run to return to -- the verbatim error text IS the evidence. The count gates: F-6 was found in two passes, fixing :156 exposed :165, so a regression leaving one site guarded must not read as CAUGHT. FINDINGS cites :156 (correct for 52ae5a9^); the same statement is :181 at HEAD.
+F-7	103775a	systolic_array	rtl	f667f74	revert	cex:a_occ_full_agrees	6 proven/3 cex, all black-box: a_occ_empty_agrees a_occ_full_agrees a_head_present
+F-8	2d94a89	systolic_array	rtl	f667f74	revert	cex:a_no_loss	4 proven/5 cex, all black-box: + a_occ_empty_agrees a_occ_full_agrees a_head_is_max a_head_present
+F-1b	a91849f	bram_tree_pipelined	rtl	f667f74	revert	cex:a_head_not_placeholder	19 proven/1 cex
+F-1c	170d1c9	register_array_enq0	rtl	f667f74	patch	cex:a_head_not_placeholder	8 proven/1 cex; fires only on the replace-only build, where F-1 is reachable
+F-22	973bb14	bram_tree_pipelined	rtl	f667f74	patch	cex:a_read_ready_is_acceptable	15 proven/5 cex, + 4 black-box
+F-25	e2e0111	bram_tree_pipelined	rtl	f667f74	patch	cex:a_head_present	17 proven/3 cex: a_reset_restores_fill, a_head_present (BLACK-BOX, portable spec), a_size_not_understated. Revert is IMPOSSIBLE: the detecting property watches `filling`, a signal the fix introduced -- rolling back gives VERI-1187 'filling is not declared under prefix u_dut' and the harness cannot elaborate.
+F-29	742d0c3	bram_tree	rtl	f667f74	revert	cex:a_reset_restores_fill	2 proven/9 cex, SEVEN black-box. Reverts cleanly -- bram_tree's bind never watches `filling`, unlike F-25's
+F-31	4372471	bram_tree	rtl	f667f74	revert	cex:a_no_enq_when_full	2 proven/9 cex + 7 black-box
+F-32	5db01ef	bram_tree	rtl	f667f74	revert	cex:a_root_capacity_agrees	10 proven/1 cex. The ONLY red is a white-box addendum; every black-box assert passes and all 23 covers stay reachable. Measured proof the portable spec cannot see this defect.
+F-28	406c076	bram_tree	rtl	f667f74	patch	cover-unreachable	11 proven, 0 cex, 13 UNREACHABLE covers. NO assert fires; the cover set is the only detector. (FINDINGS records 15 from a different experiment.)
+F-21	bbc3ef2	bram_tree_pipelined	rtl	f667f74	revert	harness-gate	no property table; aborts citing F-21
+F-21b	26adf6d	bram_tree	rtl	f667f74	revert	harness-gate	same; IMDS005 reports 42 bits at DATA_WIDTH=2 (7 signals x 6 bits)
+F-30	df47a26	bram_tree	rtl	f667f74	revert	timeout:600	TIMEOUT at 600s (ceiling lowered from 1800s 2026-09-01: the row's whole content is that it does NOT converge, and 1800s of wall clock per sweep to re-learn that is not worth it). NOT a sizing artifact: identical tcl, and the control run's slowest property proves in 174s -- ~3.5x headroom at the 600s ceiling, down from ~10x at 1800s. That is a real loss of evidential strength and the reason the ceiling must not go lower: below ~2x, 'did not converge' stops being distinguishable from 'slow'. CI goes red but no property is named.
+F-23	fe40af5	bram_tree_pipelined	rtl	f667f74	revert	none	GREEN 20/0, mutation verified real (3 guards removed). RETRACTED as a defect 2026-09-01; guards KEPT -- same disposition as F-24. expect=none is unchanged but its REASON is now the opposite of what this note used to say. It is NOT 'formal is two-state so the sim half owns this': THE SIM HALF WAS MEASURED AND IS ALSO BLIND. At QUEUE_SIZE=15, instrumented identically, the deepest level is entered 1452 times in BOTH builds and X reaches the comparator inputs 0 times guarded / 2159 times unguarded -- reachable, heavily exercised, genuinely injecting X, and the suite is green anyway because X never reaches o_data and every check watched the port. There is no sim-side detector to write; one was looked for. The RTL settles why: an explicit `parent_lvl == TREE_DEPTH-1` override at the end of the same combinational arm -- PREDATING fe40af5 -- zeroes next_parent_lvl/next_parent_idx and forces both write enables low, so nothing tainted is ever committed. The walk terminates BY DESIGN, not by accident. Synthesis agrees where there is no X at all: Vivado 2025.1 / xcau25p / OOC gives 1272 LUTs guarded vs 1259 unguarded, 789 FF both, same CARRY8, RAM and warnings; the one falsifiable hazard (write aliasing) needs MORE decode logic and the unguarded build has less with identical state, which points away from it. Not a proven equivalence -- different netlists, no LEC. VERI-9005 count is TEN with AND without the guards: that warning is a static width observation a guard does not silence, so it never discriminated. STILL OPEN, and unrelated to the retraction: two level_1[parent_idx] sites are in range only by an invariant the walk maintains and nothing asserts -- worth a white-box property, not written. STALE ARTIFACT: the RTL comment fe40af5 added still claims the walk 'terminated by accident' and cites no F-number, so grepping F-23 will not find it.
+F-24	eea4738	bram_tree_pipelined	rtl	f667f74	revert	none	GREEN 20/0, guard verified removed. NOT a hole: a_no_placeholder_at_capacity PROVES (28.35s), so the overflow state cannot occur. RETRACTION CANDIDATE: at 1f8dbd3 (F-24's own commit) with bbc3ef2 cherry-picked for a sound RAM, a_occ_bounded and a_queue_size_bounded both PROVE in 60.42s while c_root_placeholder_nonempty still covers. The cex was an F-21 artifact -- the seventh. See LEDGER-RESULTS.
+F-26	8b67c01	bram_tree_pipelined	rtl	f667f74	revert	none	GREEN 20 proven/0 cex/35 covers -- byte-identical to unmodified HEAD. NOTHING detects it. RETRACTED as a defect (F-17's category, the seventh false one) and this row is the tripwire on the retraction: expect=none means a future change that starts detecting it prints *** CHANGED *** and the retraction gets revisited. Not merely unexercised -- the precondition is REACHABLE (c_walk_runs_during_fill and c_walk_dirties_fill both cover in 2 cycles on the reverted design); the corruption simply does not survive to $fell(filling) at QUEUE_SIZE=7, DATA_WIDTH=2. Do NOT add a_walk_parked to manufacture a catch; see LEDGER-RESULTS 'Do NOT use'.
+F-14	17490f9	register_array	harness	f667f74	patch	cover-unreachable	THE ONLY HARNESS-CLASS ROW. 9 asserts proven and 0 cex -- IDENTICAL to a clean run -- beside c_reset_reasserted UNREACHABLE, 'proven unreachable in 0.00 s'. The whole finding is the one cover. Mutates the INSTRUMENT, not the design: it is the only row that tests whether the harness is load-bearing, which is this effort's thesis. Mirror image of F-28, which is the same verdict shape from the design side. Revert is wrong: 17490f9 rewrites eleven other tcl scripts and adds hwpq_rst.sv; the patch restores the pre-harness elaborate/reset pair on ONE module.

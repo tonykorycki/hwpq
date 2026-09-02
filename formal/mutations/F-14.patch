@@ -1,0 +1,44 @@
+# F-14 mutation -- the proof was scoped to the run after the first reset
+#
+#   git apply formal/mutations/F-14.patch && formal/run.sh register_array
+#
+# Expect: 9 proven, 0 cex -- and c_reset_reasserted UNREACHABLE, "proven
+# unreachable in 0.00 s". The nine asserts are IDENTICAL either way; the whole
+# finding is the one cover. Jasper computes the initial state from the `reset`
+# expression and then pins it inactive for all time, so a second reset is
+# unreachable by construction rather than by search, and every assert above it
+# is a statement about the post-first-reset run only.
+#
+# THIS ROW MUTATES THE INSTRUMENT, NOT THE DESIGN -- the only one that does, and
+# the reason the manifest carries a `class` column. The RTL is untouched. What it
+# tests is whether the harness is load-bearing: pull the reset harness and the
+# suite reports nine proven asserts beside an unreachable cover, which is the
+# effort's own thesis (an assumption that strangles the design leaves a green
+# assert table) stated from the instrument side. F-28 is its mirror image on the
+# design side -- 11 proven, 0 cex, 13 unreachable covers.
+#
+# WHY A PATCH AND NOT A REVERT: 17490f9 also adds formal/spec/hwpq_rst.sv and
+# rewrites eleven other tcl scripts. Reverting it removes the reset harness from
+# the whole suite; this restores the pre-harness elaborate/reset pair on ONE
+# module, which is the minimal form of the defect.
+diff --git a/formal/tcl/register_array.tcl b/formal/tcl/register_array.tcl
+index 5cd3fc4..1084196 100644
+--- a/formal/tcl/register_array.tcl
++++ b/formal/tcl/register_array.tcl
+@@ -57,14 +57,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
+ # ENQ_ENA 1 selects the '0 reset fill. The ENQ_ENA=0 build resets the array to
+ # all-ones instead (register_array.sv:56-62) and is a SEPARATE run, not a
+ # variant
+-elaborate -top hwpq_rst_register_array \
++elaborate -top register_array \
+     -parameter QUEUE_SIZE 4 \
+     -parameter DATA_WIDTH 3 \
+     -parameter ENQ_ENA    1
+ 
+ # ---- 3. time and reset ------------------------------------------------------
+ clock i_CLK
+-reset ~i_init_RSTn
++reset ~i_RSTn
+ 
+ # ---- 4. prove, gate, exit ---------------------------------------------------
+ set HWPQ_MODULE        register_array

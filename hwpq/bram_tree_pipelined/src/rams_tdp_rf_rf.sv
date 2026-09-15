@@ -29,20 +29,15 @@ module rams_tdp_rf_rf #(
   end
 
   // Both write ports drive `ram` from a SINGLE process. Splitting them across two
-  // always blocks -- as the vendor template does, and as this file used to --
-  // makes every bit of the array multiply driven: the tool reports
+  // always blocks, as a vendor RAM template typically does, makes every bit of the
+  // array multiply driven. Simulation is unaffected, because the two ports write
+  // different addresses and the non-blocking assignments land on different
+  // elements, but a formal tool has to resolve the drivers instead and writes
+  // become unreliably observable in the array -- a write to address 0 need not be
+  // there on the next cycle, and every memory-dependent property is proved against
+  // that.
   //
-  //   [WARN (a tool diagnostic)] net 'ram[6][2]' is constantly driven from multiple places
-  //   INFO (a tool diagnostic): Number of multiple-driven bits in design: 21
-  //
-  // (21 = DEPTH x WIDTH, i.e. all of it). Simulation is unaffected, because the
-  // two ports write different addresses and the non-blocking assignments land on
-  // different elements. A formal tool has to resolve the drivers instead, and the
-  // result is that writes are not reliably observable in the array -- a write to
-  // address 0 need not be there on the next cycle. Every memory-dependent
-  // property was being proved against that.
-  //
-  // Merging is sound HERE because every instantiation in this repo ties clka and
+  // Merging is sound here because every instantiation in this repo ties clka and
   // clkb to the same net; a genuinely dual-clock instance would need a different
   // model. The read paths stay per-port and per-clock, and read-first ordering is
   // preserved: the output samples `ram` before this cycle's writes land.

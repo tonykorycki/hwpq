@@ -1,22 +1,8 @@
 /*******************************************************************************
-  Module Name: pipelined_bram_tree
-  Date: 2025/03/20
-  Description: A pipelined BRAM-based max-heap tree used as the sub-tree
-               building block of the hybrid_tree architecture. Levels beyond
-               the register-backed top are stored in block RAM, with an index
-               tracking the currently displaced node between levels. Supports
-               enqueue, dequeue, and replace operations.
-  Parameters: QUEUE_SIZE - Maximum number of elements in the sub-tree
-              DATA_WIDTH - Bit width of data elements
-  Inputs: i_CLK - System clock
-          i_RSTn - Active-low reset signal
-          i_wrt - Write/insert command (enqueue operation)
-          i_read - Read/pop command (dequeue operation)
-          i_data - Input data to be inserted (or used for replace)
-  Outputs: o_write_ready - High when the queue has room to accept a write
-           o_read_ready - High when the queue holds data available to read
-           o_valid - High when o_data holds a valid output
-           o_data - Output data from the highest priority element
+  pipelined_bram_tree: pipelined BRAM-based max-heap tree, the sub-tree building
+  block of the hybrid_tree architecture. Levels beyond the register-backed top
+  are stored in block RAM, with an index tracking the currently displaced node
+  between levels.
 *******************************************************************************/
 
 module pipelined_bram_tree #(

@@ -1,31 +1,12 @@
 `default_nettype none
 
 /*******************************************************************************
-  Module Name: register_array_pipelined
-  Date: 2026/06/21
-  Description: A pipelined version of the register array priority queue that
-               splits the array-wide compare-and-swap operation across two
-               clock cycles (even-indexed pairs, then odd-indexed pairs) to
-               shorten the combinational path and reach higher clock
-               frequencies.
-  Parameters: ENQ_ENA - Enables the enqueue datapath when set
-              QUEUE_SIZE - Maximum number of elements in the priority queue
-              DATA_WIDTH - Bit width of data elements
-  Inputs: i_CLK - System clock
-          i_RSTn - Active-low reset signal
-          i_wrt - Write/insert command (enqueue/replace operation)
-          i_read - Read/pop command (dequeue/replace operation)
-          i_data - Input data to be enqueued (or used for replace)
-  Outputs: o_write_ready - High when the queue has room to accept a write
-           o_read_ready - High when the queue holds data available to read
-           o_data - Output data from the highest priority element
-  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
-           slot and the dequeue mechanism (write it into the head and let the
-           sort network sink it); all-ones is the max-priority placeholder an
-           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
-           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
-           so one rule covers the whole library. Behaviour when they ARE driven
-           is outside the supported input range.
+  register_array_pipelined: register_array with the compare-and-swap split
+  across two clock cycles (even-indexed pairs, then odd-indexed pairs) to
+  shorten the combinational path.
+  Reserved payloads: '0 is the empty slot and dequeue sentinel; all-ones is the
+  max-priority placeholder an ENQ_ENA=0 build resets into. Neither is legal on
+  i_data in either build; the alphabet is 2**DATA_WIDTH - 2 everywhere.
 *******************************************************************************/
 
 module register_array_pipelined #(
@@ -76,25 +57,13 @@ module register_array_pipelined #(
   assign full = (size >= QUEUE_SIZE) ? 'b1 : 'b0;
   assign empty = (size <= '0) ? 'b1 : 'b0;
 
-  //   o_write_ready - can you take another value?
-  //   o_read_ready  - is o_data trustworthy?
+  // Both readies drop while the pending compare-and-swap has not settled the head
+  // (head_valid), since a mid-swap head is not yet ordered.
   assign o_write_ready = !full && can_accept;
-  // A replace-only build resets physically full of '1 placeholders while size resets to
-  // 0, so !empty alone advertises retrievable data during the fill phase, when the head
-  // is still a placeholder the caller never inserted (F-1). Gate on the head being a
-  // real element instead.
-  //
-  // This ENFORCES the fill-before-read contract rather than merely documenting it.
-  // `dequeue` is derived from o_read_ready, so a read attempted during the fill phase
-  // is now inert instead of popping a placeholder and decrementing size. Callers that
-  // already honour the contract see no change, and every testbench in the repo does:
-  // the shared body fills with replace_init, which drives {i_wrt,i_read}=2'b11 and
-  // never consults o_read_ready. `settled` is carried by o_write_ready throughout the
-  // fill and hands back to o_read_ready exactly when the last placeholder leaves the
-  // head, since o_write_ready only drops once size reaches QUEUE_SIZE.
-  //
-  // The ENQ_ENA term constant-folds the comparator away in enqueue-capable builds,
-  // which never seat a placeholder at the head.
+  // A replace-only build resets physically full of '1 placeholders with size==0, so
+  // !empty alone would claim data during the fill phase, before any placeholder is a
+  // real element. ENQ_ENA constant-folds the comparator away in enqueue-capable
+  // builds, which never seat a placeholder at the head.
   assign o_read_ready = !empty && head_valid && (ENQ_ENA || o_data != '1);
   assign o_data = queue[0];
 
@@ -125,7 +94,7 @@ module register_array_pipelined #(
       next_size = (empty) ? size :
                   size - 1;
       3'b001:
-      next_size = (o_data == '1 && !ENQ_ENA)    ? size+1 : //special case since reset fills up the pq with highest prio item
+      next_size = (o_data == '1 && !ENQ_ENA)    ? size+1 : // replacing a reset placeholder grows size
                   (size == '0 && i_data != '0) ? size+1 :
                   (size != '0 && i_data == '0) ? size-1 :
                    size;

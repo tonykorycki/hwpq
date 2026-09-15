@@ -1,53 +1,11 @@
 /*******************************************************************************
-  Module Name: bram_tree
-  Date: 2025/03/05
-  Description: A priority queue implementation using a binary max-heap structure
-               stored in block RAM (BRAM). Supports enqueue, dequeue, and replace
-               operations.
-  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
-              DATA_WIDTH - Bit width of data elements
-  Inputs: i_CLK - System clock
-          i_RSTn - Active-low reset signal
-          i_wrt - Write/insert command (enqueue operation)
-          i_read - Read/pop command (dequeue operation)
-          i_data - Input data to be enqueued
-  Outputs: o_write_ready - High when the queue has room to accept a write
-           o_read_ready - High when the queue holds data available to read
-           o_data - Output data from the highest priority element
-
-  Cleanup notes (relative to original):
-    - Removed parent_idx and the parent/left_child/right_child registers
-      (next_state logic never wrote or read them).
-    - Removed three unreachable states: ENQUEUE_COMPARE_ROOT,
-      DEQUEUE_READ_ROOT_CHILDREN, REPLACE_READ_ROOT.
-    - Factored the repeated "are we past the last valid child / are both
-      children inactive" checks into children_out_of_range and
-      both_children_inactive.
-    - Factored the repeated "(state == IDLE) && !(i_read || i_wrt)" term
-      used by all three ready/valid outputs into idle_and_no_new_request.
-      The "&& !(i_read || i_wrt)" half was REMOVED 2026-08-30 and the term
-      renamed fsm_idle -- see the comment at the ready assignments.
-    - Replaced all `'{field: value, ...}` assignment-pattern struct literals
-      with field-by-field assignment (next.value = ...; next.position = ...;
-      etc.) for Icarus Verilog compatibility. Plain '0 fills are unaffected.
-  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
-           slot and the dequeue mechanism (write it into the head and let the
-           sort network sink it); all-ones is the max-priority placeholder an
-           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
-           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
-           so one rule covers the whole library. Behaviour when they ARE driven
-           is outside the supported input range.
+  bram_tree: binary max-heap priority queue stored in block RAM. Supports
+  enqueue, dequeue, and replace.
+  QUEUE_SIZE must be 2^k - 1, the full-tree node count.
+  Reserved payloads: '0 and all-ones are never valid on i_data.
 *******************************************************************************/
 
 module bram_tree #(
-    // QUEUE_SIZE and DATA_WIDTH were localparams in an in-file `bram_tree_pkg`,
-    // so this module built at exactly ONE size: `elaborate -parameter` cannot
-    // reach a localparam, and the Vivado parameter sweep could not drive it
-    // either -- which is why bram_tree is absent from the sweep results the rest
-    // of the library publishes. The two struct typedefs came with them, because
-    // their field widths depend on the parameters and a package typedef cannot.
-    //
-    // QUEUE_SIZE must be 2^k - 1, as for every tree design in this library.
     parameter integer QUEUE_SIZE = 7,
     parameter integer DATA_WIDTH = 16
 ) (
@@ -105,27 +63,15 @@ module bram_tree #(
   logic both_children_inactive;
   logic fsm_idle;
 
-  // Reset fill. The BRAM has no reset port, and the `initial` block in
-  // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up
-  // value and a formal tool ignores it outright (a tool diagnostic). So nothing restored
-  // the empty-tree fill: a reset arriving with data in the queue cleared
-  // queue_size and top_level but left every node holding its stale `active` flag
-  // and, worse, its stale `capacity`.
-  //
-  // Simulation cannot check this: the testbench resets once, at time zero. The
-  // defect needs a SECOND reset, which is why it went untested until
-  // a_reset_restores_fill was written -- it fails at 14 cycles.
-  //
-  // The sweep rewrites all NODES_NEEDED nodes on EVERY reset. Capacity is not a
-  // constant here: node i roots a subtree of ((NODES_NEEDED+1) >> level(i)) - 1
-  // with level(i) = floor(log2(i+1)), so rather than compute a log per node the
-  // sweep carries the level and steps it at the boundaries 1, 3, 7, ...
+  // The BRAM has no reset port; the fill sequencer runs after every reset to
+  // explicitly write the initial values to all nodes.
   logic                            filling;
   logic [ADDRESS_WIDTH-1:0]        fill_cnt;
   logic [$clog2(TREE_DEPTH+1)-1:0] fill_level;
   logic [ADDRESS_WIDTH+1:0]        fill_bound;
   logic [ADDRESS_WIDTH-1:0]        fill_cap;
 
+  // fill_cap halves per fill_level, so each depth's nodes get that subtree's capacity.
   assign fill_cap = ADDRESS_WIDTH'(((NODES_NEEDED + 1) >> fill_level) - 1);
 
 
@@ -139,12 +85,9 @@ module bram_tree #(
   bram_tree_mem_t     dout_a;
   bram_tree_mem_t     dout_b;
 
-  // The RAM now takes plain packed vectors rather than the struct type, because
-  // the struct is module-local once the widths are parameters. The conversions
-  // are explicit in both directions rather than relying on implicit struct/vector
-  // port coercion: this file has to compile under iverilog (CI) and vendor_sim
-  // (CEPool) as well as the tool, and an explicit cast is the one form all three
-  // agree on.
+  // RAM struct<->vector conversions stay explicit (not an implicit port coercion),
+  // because simulators disagree on implicit struct-to-vector port connections.
+
   localparam integer MEM_WIDTH = $bits(bram_tree_mem_t);
 
   logic [MEM_WIDTH-1:0] ram_din_a, ram_din_b, ram_dout_a, ram_dout_b;
@@ -179,9 +122,7 @@ module bram_tree #(
     end
   end
 
-  // Reset fill sequencer. Runs after EVERY reset, not just the first. No command
-  // is accepted while it runs (fsm_idle is gated on !filling), so it cannot race
-  // the descent.
+  // Reset fill sequencer
   always_ff @(posedge i_CLK or negedge i_RSTn) begin : fill_seq
     if (!i_RSTn) begin
       filling    <= 1'b1;
@@ -220,9 +161,7 @@ module bram_tree #(
     both_children_inactive = !dout_a.active && !dout_b.active;
 
     if (filling) begin
-      // Park the walk and drive the sweep. IDLE would otherwise decode whatever
-      // command is asserted, and the descent would run against a half-rewritten
-      // memory.
+      // During the filling phase, the FSM is parked in IDLE and the BRAM is being written with intial values
       next_state     = IDLE;
       addr_a         = fill_cnt;
       we_a           = 1'b1;
@@ -233,15 +172,6 @@ module bram_tree #(
     end else begin
     case (state)
       IDLE: begin
-        // WHAT PASSING LOOKS LIKE: a_no_enq_when_full says the DUT must not accept
-        // an enqueue it does not advertise. With this guard the arm does not fire
-        // on a full queue, the chain falls through, and the command is inert --
-        // the same F-8 principle as the dequeue guard below. Without it the arm
-        // ran the descent and drove next_queue_size past QUEUE_SIZE.
-        // Demonstrated at the previous commit: cex in 32 cycles, which is roughly
-        // the cost of filling a 7-element queue before the violation is even
-        // expressible. Simulation cannot reach it -- the testbench prints
-        // "Queue full, skipping enqueue" and declines to issue the command.
         if (i_wrt && !i_read && (queue_size != QUEUE_SIZE)) begin // --- ENQUEUE ---
           if (queue_size == 0) begin
             next_top_level.active   = 1'b1;
@@ -271,14 +201,6 @@ module bram_tree #(
             next_state = ENQUEUE_COMPARE_CHILD;
           end
           next_queue_size = queue_size + 1;
-        // WHAT PASSING LOOKS LIKE: a_no_deq_when_empty says the DUT must not
-        // accept a dequeue it does not advertise. With this guard the arm does
-        // not fire on an empty queue, the chain falls through, next_state stays
-        // IDLE and next_queue_size stays put -- the command is INERT, which is
-        // the F-8 principle. Without it the arm ran the whole descent and drove
-        // next_queue_size to queue_size - 1, underflowing the counter.
-        // Demonstrated at the previous commit: cex in 10 cycles. Simulation
-        // cannot reach it -- the testbench gates every dequeue on o_read_ready.
         end else if (!i_wrt && i_read && (queue_size != 0)) begin // --- DEQUEUE ---
           next_top_level.active   = 1'b0;
           next_top_level.value    = '0;
@@ -295,18 +217,7 @@ module bram_tree #(
         end else if (i_wrt && i_read) begin // --- REPLACE ---
           next.value    = i_data;
           next.position = 0;
-          // A replace on an EMPTY queue INSERTS an element, so free space must go
-          // DOWN to QUEUE_SIZE-1 -- the same value the enqueue arm assigns for the
-          // identical case. It used to read `top_level.capacity + 1`, which is
-          // wrong twice: the direction is the DEQUEUE arm's, where an element
-          // leaves and space grows; and it overflows, because capacity is
-          // QUEUE_SIZE on an empty queue and the field is ADDRESS_WIDTH bits, so
-          // 7 + 1 truncates to 0.
-          //
-          // The black-box spec does NOT see this -- all ten asserts prove with the
-          // faulty arithmetic in place. It took the white-box invariant
-          // a_root_capacity_agrees, which fails at 9 cycles, to demonstrate it.
-          // That is the difference between a code reading and evidence.
+          // A replace on an empty queue inserts: capacity drops to QUEUE_SIZE-1.
           next.capacity = (empty) ? ADDRESS_WIDTH'(QUEUE_SIZE - 1) : top_level.capacity;
 
           if (queue_size == 0) begin
@@ -667,63 +578,9 @@ module bram_tree #(
     end
   end
 
-  // The readies are a function of STATE ALONE. They used to be
-  //
-  //     assign idle_and_no_new_request = (state == IDLE) && !(i_read || i_wrt);
-  //
-  // so asserting either command drove both readies low in the same cycle. Two
-  // consequences, one practical and one that made the module unprovable:
-  //
-  //   Ready and valid could never be high together, so a conventional master --
-  //   assert valid, hold it, wait for ready -- deadlocks, because holding valid
-  //   is exactly what forces ready low.
-  //
-  //   Fed to the formal spec's `settled = o_write_ready || o_read_ready` and its
-  //   am_no_cmd_while_busy, the assumption read "if a command is issued then no
-  //   command is issued". the tool therefore issued none: at 26adf6d the run
-  //   reported 9 asserts proven with 15 of 20 covers UNREACHABLE, including all
-  //   three command covers. Every one of those proofs was vacuous.
-  //
-  // Removing the term cannot change what the design DOES: the acceptance path
-  // never reads the readies. The FSM accepts inside `case (state) IDLE: if
-  // (i_wrt && !i_read)`, branching on the state and the raw command bits. This
-  // changes only what the ports advertise, and simulation confirms it: every
-  // functional check passes and the operation counts and MAXIMA are unchanged at
-  // both QUEUE_SIZE 7 and 15.
-  //
-  // Two measured numbers DO move, and they move because this fix corrects them.
-  // The minimum enqueue and replace latency drops from 2 cycles to 1:
-  //
-  //     QUEUE_SIZE=7    enqueue min 2 -> 1, mean 3.59 -> 3.50
-  //                     replace min 2 -> 1, mean 2.65 -> 2.62
-  //                     dequeue UNCHANGED
-  //
-  // Dequeue is the tell. An enqueue or replace on an EMPTY queue sets
-  // next_state = IDLE and really does finish in one cycle; a dequeue always goes
-  // to DEQUEUE_COMPARE_ROOT and never can. Exactly the two ops that can be
-  // single-cycle are the two whose minimum moved.
-  //
-  // The old figure was a measurement artifact caused by this very defect. The
-  // testbench calls clear_cmd() and then poll_settled() in the same timestep;
-  // while a ready depended combinationally on i_wrt, that read could take the
-  // stale pre-clear value, see !settled, and burn one extra negedge before
-  // returning. A multi-cycle op is genuinely busy then, so the wait was absorbed
-  // and only the minima were inflated. With the readies derived from registered
-  // state the read is stable and the reported latency is the real one.
-  //
-  // NOTE FOR ANY PUBLISHED NUMBER: bram_tree's minimum enqueue/replace latency
-  // was over-reported by one cycle before this commit. The design did not get
-  // faster.
-  //
-  // Simulation could never have caught the original, and that is structural
-  // rather than bad luck. The shared testbench polls `settled` on the negedge
-  // with both commands cleared, then asserts a command -- so it only ever samples
-  // a ready in a cycle where no command is asserted, which is precisely where the
-  // removed term was harmlessly 1. It never holds valid waiting for ready. The
-  // ready signals and that polling protocol were written in the same commit
-  // (73d7b62), so the harness was shaped around this behaviour rather than
-  // independently checking it.
+  // fsm_idle is gated on !filling so both readies stay low through the reset fill.
   assign fsm_idle      = (state == IDLE) && !filling;
+  // Readies depend on state only, never on i_wrt/i_read, or a hold-valid master deadlocks.
   assign o_write_ready = (queue_size != QUEUE_SIZE) && fsm_idle;
   assign o_read_ready  = (queue_size != 0)          && fsm_idle;
   assign o_data        = (queue_size == 0) ? 0 : top_level.value;

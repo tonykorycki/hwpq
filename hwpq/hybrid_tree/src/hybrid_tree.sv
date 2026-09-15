@@ -1,29 +1,10 @@
 /*******************************************************************************
-  Module Name: hybrid_tree
-  Date: 2025/03/21
-  Description: A hybrid priority queue (Max H-PQ) that combines a register
-               array holding the root nodes of multiple BRAM-based trees. New
-               items replace the leftmost register entry and propagate down
-               the corresponding BRAM tree, while the register array is kept
-               sorted so each entry is >= its right neighbor. Supports
-               enqueue, dequeue, and replace operations.
-  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
-              DATA_WIDTH - Bit width of data elements
-  Inputs: i_CLK - System clock
-          i_RSTn - Active-low reset signal
-          i_wrt - Write/insert command (enqueue operation)
-          i_read - Read/pop command (dequeue operation)
-          i_data - Input data to be inserted (or used for replace)
-  Outputs: o_write_ready - High when the queue has room to accept a write
-           o_read_ready - High when the queue holds data available to read
-           o_data - Output data from the highest priority element
-  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
-           slot and the dequeue mechanism (write it into the head and let the
-           sort network sink it); all-ones is the max-priority placeholder an
-           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
-           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
-           so one rule covers the whole library. Behaviour when they ARE driven
-           is outside the supported input range.
+  hybrid_tree: register array holding the root nodes of multiple BRAM-based
+  trees. New items replace the leftmost register entry and propagate down the
+  corresponding BRAM tree, while the register array is kept sorted so each
+  entry is >= its right neighbor.
+  Does not compile under iverilog; excluded from the simulation suite and from
+  formal scope.
 *******************************************************************************/
 
 module hybrid_tree #(

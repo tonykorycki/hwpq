@@ -1,3 +1,5 @@
+#comment-only fce966d
+#
 # Mutation sweep -- does the suite still catch each fix's defect at HEAD?
 #
 # Method: worktree at HEAD, revert the fix (or apply mutations/<finding>.patch),

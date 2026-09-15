@@ -90,6 +90,27 @@ fi
 
 HEAD_SHA="$(git rev-parse --short HEAD)"
 
+# Comment-only commits (the RTL trim) sit between each fix and current HEAD, so
+# a fix's own revert or patch no longer applies against the trimmed lines.
+# Reverting these first, in every non-baseline worktree, restores the state each
+# row was written against. Baseline mode pins its checkout to the baseline
+# commit directly and never touches HEAD's comment trim, so it is unaffected.
+COMMENT_ONLY_IDS=""
+if [ "$BASELINE" -eq 0 ]; then
+  COMMENT_ONLY_IDS="$(grep -m1 '^#comment-only ' "${MANIFEST}" | cut -d' ' -f2-)"
+fi
+
+# A conflict here means the trim commit and the row's own mutation touch the
+# same lines -- report it distinctly rather than let it read as a failure of
+# defect detection.
+revert_comment_only() {
+  local wt="$1" label="$2"
+  [ -z "$COMMENT_ONLY_IDS" ] && return 0
+  ( cd "$wt" && git revert --no-commit $COMMENT_ONLY_IDS ) >/dev/null 2>&1 \
+    || { echo "  ${label}: comment-only revert conflicts"; return 2; }
+  return 0
+}
+
 if [ "${1:-}" = "--list" ]; then
   if [ "$BASELINE" -eq 1 ]; then
     printf '%-30s %-38s %-9s %-24s %s\n' ROW CONFIG BASELINE ENABLING EXPECT
@@ -142,6 +163,7 @@ check_control() {
   local mod="$1" ref="$2" wt out
   wt="$(mktemp -d)"
   git worktree add "$wt" --detach "$ref" >/dev/null 2>&1 || return 2
+  revert_comment_only "$wt" "$mod" || { git worktree remove --force "$wt" >/dev/null 2>&1; return 2; }
   out="$( cd "$wt" && formal/run.sh "$mod" 2>&1 )"
   git worktree remove --force "$wt" >/dev/null 2>&1
   # Kept for the same reason as each row's log: "control not clean" with nothing
@@ -221,6 +243,8 @@ run_row() {
     mod="$config"
   else
   git worktree add "$wt" --detach "$ref" >/dev/null 2>&1 || { echo "worktree failed"; return 2; }
+
+  revert_comment_only "$wt" "$finding" || { git worktree remove --force "$wt" >/dev/null 2>&1; return 2; }
 
   if [ "$method" = "revert" ]; then
     ( cd "$wt" && git revert --no-commit "$fix" ) >/dev/null 2>&1 \

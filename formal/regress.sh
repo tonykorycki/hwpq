@@ -45,14 +45,21 @@
 #             the mutation. --replay rebuilds at the recorded HEAD instead,
 #             which is what makes the numbers reproducible rather than dated.
 #
-# Requires `fv_tool` on PATH. One run per module directory at a time: concurrent runs
-# on the same formal/fv_proj/<module> die with "Cannot obtain ownership".
+# Requires FORMAL_BACKEND naming a real tool's backend (formal/backend/README.md).
+# stub and dryrun are refused: every row would "pass" against nothing. One run per
+# module directory at a time: concurrent runs on the same formal/fv_proj/<module>
+# collide on the tool's scratch.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 MANIFEST="${SCRIPT_DIR}/mutations/SWEEP.tsv"
 cd "${REPO_ROOT}"
+
+# Every row runs in a fresh worktree, and a real tool's backend is never
+# committed, so no worktree contains one. Point every row back at the backend in
+# THIS checkout, unless FORMAL_BACKEND_DIR already says otherwise.
+export FORMAL_BACKEND_DIR="${FORMAL_BACKEND_DIR:-${SCRIPT_DIR}/backend}"
 
 [ -f "${MANIFEST}" ] || { echo "no manifest at ${MANIFEST}" >&2; exit 2; }
 
@@ -97,6 +104,19 @@ if [ "${1:-}" = "--list" ]; then
   exit 0
 fi
 
+# ---- backend --------------------------------------------------------------------
+# A licence-free backend would judge every row against an empty property table.
+# Refuse before a single worktree is built, rather than report a sweep of noise.
+case "${FORMAL_BACKEND:-}" in
+  "")          echo "regress: FORMAL_BACKEND is not set -- name a real tool's backend." >&2; exit 2 ;;
+  stub|dryrun) echo "regress: FORMAL_BACKEND=${FORMAL_BACKEND} proves nothing; refusing." >&2; exit 2 ;;
+esac
+if [ ! -f "${FORMAL_BACKEND_DIR}/${FORMAL_BACKEND}.sh" ] \
+   || ! ( . "${FORMAL_BACKEND_DIR}/${FORMAL_BACKEND}.sh" && backend_available ); then
+  echo "regress: backend '${FORMAL_BACKEND}' in ${FORMAL_BACKEND_DIR} is missing or not runnable here." >&2
+  exit 2
+fi
+
 # ---- head drift ---------------------------------------------------------------
 # Printed ONCE, not per row. The rows below were measured at the HEAD each one
 # records; if HEAD has moved, they still run (that is the point of a regression
@@ -123,52 +143,42 @@ check_control() {
   git worktree add "$wt" --detach "$ref" >/dev/null 2>&1 || return 2
   out="$( cd "$wt" && formal/run.sh "$mod" 2>&1 )"
   git worktree remove --force "$wt" >/dev/null 2>&1
+  # Kept for the same reason as each row's log: "control not clean" with nothing
+  # left to read is a verdict whose evidence was destroyed.
+  mkdir -p "${SCRIPT_DIR}/fv_proj/regress"
+  printf '%s\n' "$out" > "${SCRIPT_DIR}/fv_proj/regress/control-${mod//\//_}.log"
   grep -qE '^[[:space:]]*RESULT: PASS' <<<"$out"
 }
 
 # ---- a run that dies BEFORE the property table --------------------------------
 #
 # Two expectations share this shape and differ only in the signature: F-21/F-21b
-# abort on the multiple-driver gate, F-6 aborts on a tool diagnostic with the design not
-# elaborated at all. The tell in both cases is the signature string in the FULL
-# output plus an EMPTY verdict block -- sed's range never opens, so there is no
-# "asserts:" line to find. That absence is the discriminator, not an accident: a
-# run that reached the property table failed some other way and must not read as
-# CAUGHT.
+# stop at the multiple-driver gate, F-6 at the elaboration gate. The tell in both
+# is the gate's line in the FULL output plus an EMPTY verdict block -- sed's range
+# never opens, so there is no "asserts:" line to find. That absence is the
+# discriminator, not an accident: a run that reached the property table failed
+# some other way and must not read as CAUGHT.
+#
+# Both signatures are verdict.tcl's own output, never a tool diagnostic, so the
+# rows survive a change of tool. Match them CASE-SENSITIVELY and anchored at line
+# start. A tool that echoes the Tcl it runs puts the source of those puts
+# statements, and any prose mentioning the condition, into the log: measured on a
+# clean bram_tree log, "7 multiply-driven signals" appears in echoed prose. The
+# empty verdict block is the second conjunct, because one is not enough to hang a
+# row on.
 #
 # Reads $out, $verdict and $finding from the calling run_row (bash locals are
 # visible to callees).
 #
-# The signature must be the tool's own diagnostic form, never a bare error code
-# or keyword, and matching is CASE-SENSITIVE. fv_tool echoes the tcl script into the
-# log, so a comment that merely MENTIONS the condition matches otherwise -- both
-# measured on the clean bram_tree log, which contains "a tool diagnostic" and, at line 51,
-# "7 multiply-driven signals (u_dut.bram_inst.ram[0..6])". Case-insensitively
-# that last one matches even the gate's own banner text. Only the empty verdict
-# block then stands between it and a false CAUGHT, and one conjunct is not enough
-# to hang a row on. The gate prints "MULTIPLY-DRIVEN SIGNALS ("; the prose does not.
-#
-#   $1 signature regex   $2 expected distinct match count ("" = do not check)
-#   $3 human label
+#   $1 signature regex   $2 human label
 check_elab_fail() {
-  local sig="$1" want_n="$2" label="$3" got_n
+  local sig="$1" label="$2"
   if ! grep -qE "$sig" <<<"$out"; then
     echo "  ${finding}: *** NOT CAUGHT *** expected ${label}"; return 1
   fi
   if grep -q 'asserts:' <<<"$verdict"; then
     echo "  ${finding}: *** NOT CAUGHT *** ${label} matched, but a property table WAS produced"
     return 1
-  fi
-  if [ -n "$want_n" ]; then
-    # Distinct matching lines, not raw occurrences: the tool repeats a diagnostic
-    # across phases, and what the finding records is how many SITES are bad.
-    got_n="$(grep -oE "${sig}.*" <<<"$out" | sort -u | wc -l)"
-    if [ "$got_n" -ne "$want_n" ]; then
-      echo "  ${finding}: *** COUNT CHANGED *** ${label}: ${got_n} distinct, recorded ${want_n}"
-      return 1
-    fi
-    echo "  ${finding}: CAUGHT (${label}, ${got_n} distinct, no property table)"
-    return 0
   fi
   echo "  ${finding}: CAUGHT (${label}, no property table)"
   return 0
@@ -177,7 +187,7 @@ check_elab_fail() {
 # ---- one row ------------------------------------------------------------------
 run_row() {
   local finding="$1" fix="$2" mod="$3" cls="$4" head_at="$5" method="$6" expect="$7"
-  local wt out verdict ref spec sig want_n ceiling rc=0
+  local wt out verdict ref ceiling rc=0
 
   ref="$HEAD_SHA"
   [ "$REPLAY" -eq 1 ] && ref="$head_at"
@@ -281,20 +291,14 @@ run_row() {
       else
         echo "  ${finding}: CAUGHT (vacuity: ${got_n} unreachable)"
       fi ;;
-    elab-fail:*)
-      # elab-fail:<code>[:<n>] -- a code never contains ':', so the tail is the count.
-      spec="${expect#elab-fail:}"
-      sig="${spec%%:*}"
-      want_n=""
-      [ "$spec" != "$sig" ] && want_n="${spec##*:}"
-      # The manifest carries the bare code; match the tool's DIAGNOSTIC form,
-      # "[ERROR (a tool diagnostic)] ...". A bare code match is not a discriminator --
-      # fv_tool echoes the tcl script, and a comment mentioning a code appears in
-      # perfectly clean logs. Measured: the clean bram_tree log matches
-      # /multiply.driven/ on an echoed comment at line 51.
-      check_elab_fail "ERROR \\(${sig}\\)" "$want_n" "elaboration failure (${sig})" || rc=1 ;;
+    elab-fail)
+      # Keyed on verdict.tcl's own gate line, never on the tool's diagnostic, so
+      # the row survives a change of tool. Anchored at line start: if the tool
+      # echoes the Tcl it runs, the echoed source reads `puts "    ELABORATION
+      # FAILED...` and the anchor does not match it.
+      check_elab_fail '^[[:space:]]*ELABORATION FAILED:' 'elaboration failure' || rc=1 ;;
     harness-gate)
-      check_elab_fail 'MULTIPLY-DRIVEN SIGNALS' '' 'multiply-driven harness gate' || rc=1 ;;
+      check_elab_fail '^[[:space:]]*MULTIPLY-DRIVEN SIGNALS \(' 'multiply-driven harness gate' || rc=1 ;;
     timeout|timeout:*)
       if grep -q 'TIMEOUT' <<<"$out"; then
         echo "  ${finding}: CAUGHT (non-convergence at ${ceiling:-1800}s -- weakest form, names no property)"

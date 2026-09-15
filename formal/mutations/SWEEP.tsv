@@ -33,10 +33,10 @@
 #
 # expect  cex:<leaf>            named property must be in the counterexample list
 #         cover-unreachable     one or more covers must come back UNREACHABLE (vacuity)
-#         elab-fail:<code>[:<n>]  the run must die BEFORE the property table, citing
-#                               <code>; with <n>, exactly n distinct matching lines.
-#                               harness-gate is the same class with the
-#                               multiply-driven signature and no count.
+#         elab-fail             the run must stop at the elaboration gate
+#                               ("ELABORATION FAILED:") with NO property table.
+#                               harness-gate is the same class at the
+#                               multiple-driver gate.
 #         harness-gate          run aborts on the multiple-driver check, no property table
 #         timeout               proof stops converging (weakest: names no property)
 #         none                  NOTHING detects it -- see notes. A `none` row is not a
@@ -62,7 +62,7 @@
 # not as an assertion.
 #
 #finding	fix	module	class	head	method	expect	notes
-F-6	52ae5a9	systolic_array	rtl	f667f74	revert	elab-fail:a tool diagnostic:2	TWO distinct a tool diagnostic errors, elaboration does not complete, NO property table at all. Reconstructed, not checked out: no systolic_array.tcl existed at 52ae5a9^, so there is no historical run to return to -- the verbatim error text IS the evidence. The count gates: F-6 was found in two passes, fixing :156 exposed :165, so a regression leaving one site guarded must not read as CAUGHT. FINDINGS cites :156 (correct for 52ae5a9^); the same statement is :181 at HEAD.
+F-6	52ae5a9	systolic_array	rtl	f667f74	revert	elab-fail	TWO distinct a tool diagnostic errors, elaboration does not complete, NO property table at all. Reconstructed, not checked out: no systolic_array.tcl existed at 52ae5a9^, so there is no historical run to return to -- the verbatim error text IS the evidence. The site count is no longer checked (2026-09-15): the tool reports the two out-of-range sites plus a follow-on could-not-elaborate error, so no tool-neutral count reproduces the recorded 2 (F-6 was found in two passes, fixing :156 exposed :165). The row now requires the elaboration gate to fire with no property table. Accepted loss: a regression that re-guards one site but not the other still fails elaboration and still reads CAUGHT. FINDINGS cites :156 (correct for 52ae5a9^); the same statement is :181 at HEAD.
 F-7	103775a	systolic_array	rtl	f667f74	revert	cex:a_occ_full_agrees	6 proven/3 cex, all black-box: a_occ_empty_agrees a_occ_full_agrees a_head_present
 F-8	2d94a89	systolic_array	rtl	f667f74	revert	cex:a_no_loss	4 proven/5 cex, all black-box: + a_occ_empty_agrees a_occ_full_agrees a_head_is_max a_head_present
 F-1b	a91849f	bram_tree_pipelined	rtl	f667f74	revert	cex:a_head_not_placeholder	19 proven/1 cex

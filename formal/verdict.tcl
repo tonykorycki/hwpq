@@ -58,13 +58,11 @@ proc hwpq_leaf {p} {
 # address 0 need not be there on the next cycle -- and every memory-dependent
 # property is then decided against contents the tool was free to invent.
 #
-# That is F-21, the most expensive finding of this effort. The tool announced it
-# on every run of bram_tree_pipelined, starting with the very first, as
-# multiple-driver warnings in the elaboration log. Nobody read them for the life
-# of the module, because nothing here treated them as fatal. Six properties that
-# failed for this reason were reported as design defects; five were retracted
-# (F-17), and one had been escalated as requiring a rework of the sift walk.
-# There was nothing to rework.
+# This is the costliest kind of false result the harness can produce: a
+# property decided against a memory model the tool was free to invent,
+# reported as though it says something about the design. Elaboration warnings
+# announce multiple-driver nets before any property runs; reading them first is
+# what catches this before wasted proof time.
 #
 # The gate runs BEFORE proving. A run against a resolved-driver model does not
 # produce a weaker result, it produces a meaningless one, so there is nothing to
@@ -111,11 +109,11 @@ proc hwpq_multiple_driven_gate {} {
 # declare, and the tool's own error from trying would end the run before this
 # could say why.
 #
-# The "ELABORATION FAILED:" line is what regress.sh keys the F-6 row on, in
-# place of the tool's own diagnostic. It counts failed BUILD STEPS, not bad
-# source sites. Sites are the tool's to report and are not portably countable:
-# F-6's log carries two out-of-range errors plus a follow-on "could not be
-# elaborated" error, so a line count gives 3 where the finding records 2.
+# The "ELABORATION FAILED:" line is what regress.sh keys an elaboration-failure
+# row on, in place of the tool's own diagnostic. It counts failed BUILD STEPS,
+# not bad source sites: sites are the tool's to report and are not portably
+# countable, so a source-error count and a build-step count can legitimately
+# disagree.
 proc hwpq_elab_gate {} {
     if {[catch {set n [backend::elab_errors]} err]} {
         puts "FORMAL ERROR: backend::elab_errors failed: $err"

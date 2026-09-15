@@ -36,10 +36,11 @@ module hwpq_smoke_tb;
     return DATA_WIDTH'($urandom_range(1, (1 << DATA_WIDTH) - 2));
   endfunction
 
-  // The spec's assumptions are ENVIRONMENT CONSTRAINTS. the tool honours them by
-  // never exploring a state that violates one; Verilator has no constraint
-  // solver and compiles `assume property` as an assert, so this driver has to
-  // satisfy them itself or checks 2 and 3 fail for the wrong reason.
+  // The spec's assumptions are ENVIRONMENT CONSTRAINTS. A formal tool honours
+  // them by never exploring a state that violates one; Verilator has no
+  // constraint solver and compiles `assume property` as an assert, so this
+  // driver has to satisfy them itself or checks 2 and 3 fail for the wrong
+  // reason.
   //
   // Two apply to the register_array/ENQ_ENA=1 configuration bound here:
   //   am_payload_legal      -- i_data is never a reserved sentinel, so i_data is

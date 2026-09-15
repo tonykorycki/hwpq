@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Local validation. Runs everything that can be checked WITHOUT a
-# the formal tool license, so a broken spec is caught in seconds instead of after an
+# Local validation. Runs everything that can be checked WITHOUT the formal
+# tool's license, so a broken spec is caught in seconds instead of after an
 # SSH round trip.
 #
 # Four checks:
@@ -15,8 +15,8 @@
 # Check 3 is the important one. A harness that cannot report failure is worse
 # than no harness, and this is how we know it can before trusting a green run.
 #
-# What this CANNOT do: prove anything. Simulation samples; only the tool decides.
-# Passing smoke.sh means "worth sending to CEPool", not "correct".
+# What this CANNOT do: prove anything. Simulation samples; only the formal tool
+# decides. Passing smoke.sh means "worth sending to CEPool", not "correct".
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +47,8 @@ echo "=== 1. lint: spec + bind elaborate against the DUT ==="
 #   SYNCASYNCNET  inherent to `disable iff (!i_RSTn)` on an async-reset design:
 #                 the RTL flops i_RSTn asynchronously, the property samples it
 #                 synchronously. That is exactly what `disable iff` is for, and
-#                 it is how the tool's `reset ~i_RSTn` works too. Not a defect.
+#                 it is how the formal tool's `reset ~i_RSTn` works too. Not a
+#                 defect.
 #   GENUNNAMED /  pre-existing warnings in the RTL itself, not introduced here.
 #   WIDTHEXPAND   Left waived so this check only ever fails on OUR code.
 #   DECLFILENAME  hwpq_spec.sv holds a module of the same name; harmless.

@@ -17,10 +17,10 @@
 // ASSUME_FILL_FIRST is wired the same way register_array_bind.sv and
 // register_tree_bind.sv wire it. hwpq_spec.sv:152 guards the assumption on
 // `!ENQ_ENA`, so it is inert in the ENQ_ENA=1 run above and this changes
-// nothing there; it exists for the replace-only build, where without it F-1
-// reproduces. Without the `ifdef the parameter would default to 1 and
-// --ungated would silently leave the assumption ON -- green while checking
-// nothing, which is the failure mode F-5 describes.
+// nothing there; it exists for the replace-only build, where the ordering and
+// occupancy asserts reproduce without it. Without the `ifdef the parameter
+// would default to 1 and --ungated would silently leave the assumption ON --
+// green while checking nothing.
 bind register_array_pipelined hwpq_spec #(
     .QUEUE_SIZE (QUEUE_SIZE),
     .DATA_WIDTH (DATA_WIDTH),
@@ -46,16 +46,9 @@ bind register_array_pipelined hwpq_spec #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs.
-//
-// the tool's `reset` takes a SIMPLE PIN constraint (compound expressions are
-// rejected, a tool diagnostic) and pins it inactive for all time after initialisation. So
-// `reset ~i_RSTn` makes a second reset unreachable: under that setup
-// c_reset_reasserted was PROVEN UNREACHABLE in 0.00 s, which means every
-// property in this effort was a statement about the post-first-reset run only,
-// and any defect needing a mid-operation reset was invisible. The only way to
-// keep i_RSTn free is a level above the DUT; driving it from
-// (i_init_RSTn & i_RSTn) moves the pinning onto i_init_RSTn instead.
+// Reset harness -- the elaboration top for this module's proofs. The tool
+// holds the declared reset inactive after init; declaring i_init_RSTn keeps
+// the DUT's i_RSTn free for mid-operation resets.
 //
 // It lives in this file rather than its own because bind/ is already the
 // per-module formal glue. The bind above is unaffected: it targets the module

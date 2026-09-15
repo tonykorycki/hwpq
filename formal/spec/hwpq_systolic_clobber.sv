@@ -2,10 +2,10 @@
 // white-box addendum for systolic_array: does a write ever destroy IB[0]?
 //
 // Separate from hwpq_systolic_aux.sv on purpose. That file characterises the
-// F-7 window with NO assumptions at all, which is what makes its results
-// strong. This one needs the payload-alphabet convention to say anything
-// (a tracked value has to be distinguishable from an empty cell), so keeping
-// them apart avoids retroactively weakening a result already reported.
+// ready/accept window with NO assumptions at all, which is what makes its
+// results strong. This one needs the payload-alphabet convention to say
+// anything (a tracked value has to be distinguishable from an empty cell), so
+// keeping them apart avoids retroactively weakening a result already reported.
 //
 // THE QUESTION
 //
@@ -16,10 +16,8 @@
 // IB slot being empty and propagates backward one cell per cycle, so how much
 // slack the queue keeps decides whether IB[0] drains in time.
 //
-// These properties held only for a well-behaved caller until F-8 was fixed;
-// they now hold with NO assumption at all, which is the statement worth having:
-// a refused command is inert. The parameters that used to select between those
-// configurations are gone along with the defect that needed them.
+// These properties hold with NO assumption at all, which is the statement
+// worth having: a refused command is inert.
 //
 // METHOD
 //
@@ -56,13 +54,13 @@ module hwpq_systolic_clobber #(
   // ---------------------------------------------------------------------------
   // Environment. MIN_VALUE is the module's reserved "invalid entry" sentinel
   // (systolic_array.sv:50, :28), so driving it as a payload is out of the
-  // supported input range - hole CH-1, and Appendix A.1 records that it wedges
-  // the queue outright. The stimulus in the shared testbench excludes it too.
+  // supported input range and wedges the queue outright. The stimulus in the
+  // shared testbench excludes it too.
   // ---------------------------------------------------------------------------
   am_payload_legal : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       i_data != MIN_VALUE);
 
-  // The standard quiescence convention (CH-2).
+  // The standard quiescence convention.
   am_no_cmd_while_busy : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       !settled |-> !i_wrt && !i_read);
 
@@ -88,7 +86,8 @@ module hwpq_systolic_clobber #(
 
   // The ONLY legitimate way a copy leaves: the head is popped. Both arms zero
   // OB[0] (:95, :115). Note these are the DUT's own internal accept gates, not
-  // the advertised readies - which is exactly the distinction F-7 is about.
+  // the advertised readies - a deliberate distinction, since the two need not
+  // agree.
   wire deq_fires = i_read && !i_wrt && !empty;
   wire rep_fires = i_wrt && i_read && !empty;
   wire pops_tv   = (deq_fires || rep_fires) && (OB[0] == tv);
@@ -143,14 +142,14 @@ module hwpq_systolic_clobber #(
 
   // Stated as an ASSERT, not a cover: "no ghosts" is the desired outcome, and a
   // cover whose unreachability is the good news is the wrong construct - it
-  // would fail the run via common.tcl's vacuity gate for the right reason
-  // reported as the wrong one.
+  // would fail the run via the vacuity gate for the right reason reported as
+  // the wrong one.
   a_no_ghost_cells : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled |-> live_cells <= size);
 
 `ifdef HWPQ_SELFTEST
   // Bound without hwpq_spec, so it does not inherit that file's self-test hook.
-  // A configuration with no way to fail has stopped checking (F-3).
+  // A configuration with no way to fail has stopped checking.
   a_selftest_must_fail : assert property (@(posedge i_CLK) disable iff (!i_RSTn) 1'b0);
 `endif
 

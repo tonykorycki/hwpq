@@ -66,11 +66,11 @@ returns bare names makes every `cex:` row read NOT CAUGHT.
 an empty list.**
 
 `verdict.tcl` treats an error as exit 2 ("the harness is broken") and an empty
-list as a fact about the design. Conflating the two is exactly how F-21 stayed
-invisible: a multiple-driver query that silently returned nothing reads as "this
-design is clean", and six properties failing because the tool had invented the
-memory contents were escalated as design defects. If your tool cannot answer
-`design_info multiple_driven`, raise an error — do not return `{}`.
+list as a fact about the design. Conflating the two lets a multiple-driver
+query that silently returns nothing read as "this design is clean", with every
+property that then fails against invented memory contents escalated as a
+design defect. If your tool cannot answer `design_info multiple_driven`, raise
+an error — do not return `{}`.
 
 `backend::assumption_status` is the one exception: `verdict.tcl` catches its
 error and downgrades to a note, because vacuity is still caught by the cover

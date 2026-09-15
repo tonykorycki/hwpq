@@ -11,16 +11,12 @@
 //   full          =  (size >= QUEUE_SIZE - 2)     what the enqueue path ENFORCES
 //   o_write_ready = !full && (bubble term)        what the queue ADVERTISES
 //
-// They did not always. o_write_ready used to carry its own threshold at
-// QUEUE_SIZE-3, one slot tighter, so the queue advertised no room while still
-// accepting writes. That was F-7: it cost a usable slot for any caller that
-// honoured the ready, and left a window that behaved differently for one that
-// did not. The two are now structurally coupled - o_write_ready is derived from
-// `full` - and these properties are what keeps them that way.
-//
-// This file previously measured the width of that window. It does not need to
-// any more; it guards the invariant instead. The measurement is recorded in
-// F-7/F-9 of formal/README.md.
+// A separate threshold on either side -- o_write_ready one slot tighter than
+// `full`, say -- would let the queue advertise no room while still accepting
+// writes: a usable slot lost for a caller that honours the ready, and a window
+// that behaves differently for one that does not. The two are structurally
+// coupled -- o_write_ready is derived from `full` -- and these properties are
+// what guards that invariant.
 
 module hwpq_systolic_aux #(
     parameter int QUEUE_SIZE = 8
@@ -48,7 +44,7 @@ module hwpq_systolic_aux #(
       settled |-> (o_write_ready == !full));
 
   // The real capacity, two below nominal. The two reserved slots are what keeps
-  // the shift network able to move; one is provably not enough (F-9).
+  // the shift network able to move; one is provably not enough.
   a_size_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       size <= QUEUE_SIZE - 2);
 
@@ -62,7 +58,7 @@ module hwpq_systolic_aux #(
 
 `ifdef HWPQ_SELFTEST
   // Bound without hwpq_spec, so it does not inherit that file's self-test hook.
-  // A configuration with no way to fail has stopped checking (F-3).
+  // A configuration with no way to fail has stopped checking.
   a_selftest_must_fail : assert property (@(posedge i_CLK) disable iff (!i_RSTn) 1'b0);
 `endif
 

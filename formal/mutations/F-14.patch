@@ -12,15 +12,15 @@
 # THIS ROW MUTATES THE INSTRUMENT, NOT THE DESIGN -- the only one that does, and
 # the reason the manifest carries a `class` column. The RTL is untouched. What it
 # tests is whether the harness is load-bearing: pull the reset harness and the
-# suite reports nine proven asserts beside an unreachable cover, which is the
-# effort's own thesis (an assumption that strangles the design leaves a green
-# assert table) stated from the instrument side. F-28 is its mirror image on the
-# design side -- 11 proven, 0 cex, 13 unreachable covers.
+# suite reports nine proven asserts beside an unreachable cover: an assumption
+# that strangles the design leaves a green assert table, stated here from the
+# instrument side rather than the design side.
 #
-# WHY A PATCH AND NOT A REVERT: 17490f9 also adds formal/spec/hwpq_rst.sv and
-# rewrites eleven other proof configs. Reverting it removes the reset harness
-# from the whole suite; this restores the pre-harness top/reset pair on ONE
-# config, which is the minimal form of the defect.
+# WHY A PATCH AND NOT A REVERT: the commit that added the reset harness also
+# adds formal/spec/hwpq_rst.sv and rewrites eleven other proof configs.
+# Reverting it removes the reset harness from the whole suite; this restores
+# the pre-harness top/reset pair on ONE config, which is the minimal form of
+# the defect.
 --- a/formal/config/register_array.cfg
 +++ b/formal/config/register_array.cfg
 @@ -37,14 +37,14 @@

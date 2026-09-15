@@ -4,12 +4,11 @@
 // everything it can from the six-port interface. Three things it cannot see live
 // here, all of them below the port list:
 //
-//   1. CH-6 -- the BRAM contents at power-up. the tool ignores the `initial` block
-//      in rams_tdp_rf_rf.sv (a tool diagnostic: 'initial' construct is ignored), so the
-//      memories start ARBITRARY and every ordering property would fail for
-//      reasons that say nothing about the design. The all-ones fill is assumed
-//      for cycle 0 ONLY, by `backend::assume_bound 1` in the tcl -- see the CH-6 note
-//      below for why it cannot live here.
+//   1. The BRAM contents at power-up. A formal tool ignores the `initial` block
+//      in rams_tdp_rf_rf.sv, so the memories start ARBITRARY and every ordering
+//      property would fail for reasons that say nothing about the design. The
+//      all-ones fill is assumed for cycle 0 ONLY, in the proof driver -- see the
+//      power-up fill note below for why it cannot live here.
 //
 //   2. Whether a later reset restores that fill. It does not: bram_seq resets
 //      level_0 and level_1 but nothing rewrites the BRAMs. That is the reset
@@ -17,9 +16,8 @@
 //      be assumed away.
 //
 //   3. Whether the out-of-range index expressions the tool warns about are ever
-//      actually reached. Elaboration only says "this MIGHT lead to an
-//      out-of-bound access" (a tool diagnostic, ten sites); the a_*_index_in_range
-//      properties decide it.
+//      actually reached. Elaboration only says the access MIGHT be out of bound;
+//      the a_*_index_in_range properties decide it.
 //
 // It binds to the RESET HARNESS rather than to bram_tree_pipelined, because
 // distinguishing the first reset from a later one needs i_init_RSTn, which only
@@ -28,8 +26,7 @@
 //
 // Written for TREE_DEPTH=3 (QUEUE_SIZE=7), where the generate produces exactly
 // one BRAM level: an unpacked-array port cannot be generated over a parameter,
-// so each level would need its own port. Proof sizes are pinned per module
-// anyway -- hole CH-3.
+// so each level would need its own port. Proof sizes are pinned per module.
 
 module hwpq_bram_aux #(
     parameter int QUEUE_SIZE   = 7,
@@ -82,22 +79,22 @@ module hwpq_bram_aux #(
   end
 
   // ---------------------------------------------------------------------------
-  // CH-6 -- the power-up fill, assumed once
+  // The power-up fill, assumed once
   // ---------------------------------------------------------------------------
   //
-  // The assumption itself is NOT here: it is `backend::assume_bound 1 {...fill_intact}`
-  // in formal/tcl/bram_tree_pipelined.tcl, because it has to apply at cycle 0 and
-  // SVA cannot say that. The obvious spec-side phrasing
+  // The assumption itself is NOT here: it applies at cycle 0 only, in the proof
+  // driver, because SVA cannot say that from inside a property. The obvious
+  // spec-side phrasing
   //
   //     am_initial_fill : assume property (!i_init_RSTn |-> fill_intact);
   //
-  // was tried first and is VACUOUS: the tool's initial state is already
-  // post-reset, so !i_init_RSTn is never true at an observed posedge and
-  // am_initial_fill:antecedent comes back UNREACHABLE. The memories stayed
-  // free and ten properties failed for reasons that said nothing about the
-  // design. `-bound 1` constrains cycle 0 and nothing after it, which is exactly
-  // the "first reset only" scoping CH-6 needs -- a later reset stays free to
-  // expose that nothing restores the fill.
+  // is VACUOUS: the tool's initial state is already post-reset, so
+  // !i_init_RSTn is never true at an observed posedge and the assumption's
+  // precondition comes back UNREACHABLE. The memories stay free and every
+  // downstream property fails for reasons that say nothing about the design.
+  // Pinning cycle 0 and nothing after it is exactly the "first reset only"
+  // scoping this needs -- a later reset stays free to expose that nothing
+  // restores the fill.
 
   // ---------------------------------------------------------------------------
   // The reset defect
@@ -108,15 +105,14 @@ module hwpq_bram_aux #(
   // asserted while the queue held data left the memory holding stale nodes while
   // queue_size reported 0. Fixed by the reset fill sequencer (`filling`).
   //
-  // THE ORIGINAL FORM OF THIS PROPERTY WAS UNSATISFIABLE. It read
+  // The property cannot read
   //
   //     a_reset_restores_fill : !i_RSTn |=> fill_intact;
   //
-  // which demands the whole memory read all-ones ONE cycle after reset asserts --
-  // a single-cycle bulk clear that no BRAM can do. It named a real defect and
-  // could not have gone green against any correct implementation; see F-20. The
-  // achievable contract is that the sweep has finished before the module will
-  // take a command, which is what these two say together.
+  // which would demand the whole memory read all-ones ONE cycle after reset
+  // asserts -- a single-cycle bulk clear that no BRAM can do. The achievable
+  // contract is that the sweep has finished before the module will take a
+  // command, which is what these two say together.
   a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       $fell(filling) |-> fill_intact);
 
@@ -129,9 +125,8 @@ module hwpq_bram_aux #(
   // ---------------------------------------------------------------------------
   //
   // addr_a/b, din_a/b, dout_a/b and we_a/b are declared [2:TREE_DEPTH-1] (:57-70)
-  // and eight sites indexed them at [parent_lvl+1]; the tool warned on all of them
-  // (a tool diagnostic) but elaborated, so the question was whether the design ever got
-  // there.
+  // and eight sites indexed them at [parent_lvl+1]; the tool warns on all of them
+  // but elaborates, so the question is whether the design ever gets there.
   //
   // It is a COVER and not an assert, deliberately. The tempting form is
   //
@@ -163,12 +158,12 @@ module hwpq_bram_aux #(
   // So o_write_ready is a QUIESCENCE signal wearing a capacity signal's name,
   // forced to exist by the shared six-port interface. The spec binds with
   // HAS_FULL=0 for exactly this reason; stating it here is what stops that
-  // parameter from being an unexamined inheritance (F-10).
+  // parameter from being an unexamined inheritance.
   //
   // The right-hand side gained `&& !filling` with the reset fix: the port now
   // means quiescent AND initialised. Both terms belong in it -- the design decodes
   // commands off exactly this expression, so writing the property against anything
-  // narrower would reopen the ready/accept gap that F-7 records.
+  // narrower would reopen the ready/accept gap.
   a_wready_is_quiescence : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       o_write_ready == (sift_done && !filling));
 
@@ -187,8 +182,7 @@ module hwpq_bram_aux #(
   // replaces at up to fourteen cycles each: roughly a hundred cycles of bounded
   // reachability, against a deepest witness of twenty-one anywhere else in this
   // suite. Written that way it does not converge at all rather than converging
-  // slowly -- two runs were killed, one after 4.7 hours. A cover whose witness is
-  // out of reach is not evidence; it is a hang.
+  // slowly. A cover whose witness is out of reach is not evidence; it is a hang.
   //
   // So the shallow form is proved here and the deep one is left to simulation,
   // which fills the queue every run and reports the cycles/op it took. That
@@ -198,10 +192,7 @@ module hwpq_bram_aux #(
       sift_done && (queue_size > 1));
 
   // The window is 20, not 6. A dequeue on this module takes 6 to 18 cycles
-  // (simulation measures min 6, mean 9.5, max 18), so 6 cannot span one. It was
-  // nonetheless REACHABLE until the RAM model was fixed, because a multiply-driven
-  // memory let queue_size move along paths the real design has not got -- see
-  // F-21. The bound was measured against that model and inherited its error.
+  // (simulation measures min 6, mean 9.5, max 18), so 6 cannot span one.
   c_occupancy_shrinks : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 1) ##[1:20] (sift_done && (queue_size == 1)));
 
@@ -219,7 +210,7 @@ module hwpq_bram_aux #(
   // either one cause or six, and the spec cannot tell which, because everything it
   // knows comes through the same six ports.
   //
-  // F-7 is the precedent: four spec asserts failed on systolic_array and the cause
+  // The precedent: four spec asserts failed on systolic_array and the cause
   // turned out to be the SPEC undercounting, not the design misbehaving. The way
   // that was settled was to state the same claims white-box, against the design's
   // own signals, and see which version survives.
@@ -247,10 +238,8 @@ module hwpq_bram_aux #(
       sift_done && (queue_size > 0) && (level_0 == '1));
 
   // Every placeholder has been evicted by the time the queue is full, so the root
-  // holds real data there. This was a COVER while the state looked reachable, and
-  // it was -- but only against the multiply-driven RAM model, which let the tool
-  // choose memory contents (F-21). On a sound model the state cannot occur, so the
-  // knowledge is kept as the invariant it actually is rather than deleted.
+  // holds real data there. Unreachable against a sound memory model, so the
+  // knowledge is kept as the invariant it actually is.
   a_no_placeholder_at_capacity : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size == QUEUE_SIZE) |-> level_0 != '1);
 
@@ -289,7 +278,7 @@ module hwpq_bram_aux #(
   // directions at 13 and 15 cycles, which is the register/memory skew and not a
   // defect. Three consecutive quiet cycles put every write in the memory.
   // Delayed explicitly rather than with $past, which needs a clocking context a
-  // continuous assign does not have (a tool diagnostic).
+  // continuous assign does not have.
   logic sift_done_d1, sift_done_d2;
   always_ff @(posedge i_CLK or negedge i_RSTn) begin
     if (!i_RSTn) begin
@@ -302,11 +291,11 @@ module hwpq_bram_aux #(
   end
   // `&& !filling` is load-bearing. sift_done RESETS HIGH, so without it the window
   // opens two cycles after reset -- in the middle of the placeholder sweep, when
-  // the memory is half written and counting the tree is meaningless. Retiring CH-6
-  // is what exposed this: the contents now power up arbitrary by design, so
-  // `occupied` at cycle 0 is whatever the tool picked. Both conservation properties
-  // failed at a depth of ONE cycle on that, which is the tell -- a real
-  // conservation defect needs commands to have happened.
+  // the memory is half written and counting the tree is meaningless. With the
+  // memory contents powering up arbitrary by design, `occupied` at cycle 0 is
+  // whatever the tool picked; both conservation properties would fail at a depth
+  // of ONE cycle on that, which is the tell -- a real conservation defect needs
+  // commands to have happened.
   wire quiesced = sift_done && sift_done_d1 && sift_done_d2 && !filling;
 
   // Vacuity guard: the window has to be reachable with the queue non-trivial, or
@@ -319,13 +308,12 @@ module hwpq_bram_aux #(
   // `o_data == '1` or on `queue_size == 0 && i_data != 0`, and neither arm mentions
   // '0, the empty marker DEQUEUE writes into the root. Reading the source suggests
   // a replace evicting a '0 adds an element and counts nothing, which is exactly
-  // the shape of a_size_not_understated.
+  // the shape a_size_not_understated would catch if it were true.
   //
-  // It was written as a hypothesis to be judged by a run rather than by a reader,
-  // and the run rejected it: c_replace_over_zero is reachable at 175 cycles, so a
-  // replace really does evict a '0, and the increment fires anyway -- the
-  // `queue_size == 0` arm covers the case that matters. Kept as a proven invariant
-  // so the next reader does not re-derive the same wrong idea.
+  // It is not: c_replace_over_zero is reachable, so a replace really does evict a
+  // '0, and the increment fires anyway -- the `queue_size == 0` arm covers the
+  // case that matters. Kept as a proven invariant so the next reader does not
+  // re-derive the same wrong idea.
   c_replace_over_zero : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       cmd_replace && (level_0 == '0));
 

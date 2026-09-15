@@ -17,11 +17,11 @@
 //
 // MAX_SETTLE=8: TRANSCRIBED, not read from the design -- no localparam holds it,
 // so unlike register_tree's SETTLE_MAX it cannot track QUEUE_SIZE if the walk
-// changes. Flagged the way F-4 flags the tree timers. The structure is roughly
-// two cycles per level plus accept and return, i.e. 2*TREE_DEPTH+2 = 8 at
-// QUEUE_SIZE=7, and simulation measures a maximum op latency of 7 at that size
-// (replace) and 7 at QUEUE_SIZE=15. Re-derive it once the run gets past the
-// multiple-driver gate; it is a guess until a_progress has actually judged it.
+// changes. The structure is roughly two cycles per level plus accept and
+// return, i.e. 2*TREE_DEPTH+2 = 8 at QUEUE_SIZE=7, and simulation measures a
+// maximum op latency of 7 at that size (replace) and 7 at QUEUE_SIZE=15.
+// Re-derive it once the run gets past the multiple-driver gate; it is a guess
+// until a_progress has actually judged it.
 //
 // KNOWN: this bind is expected to produce a VACUOUS run once it elaborates,
 // because o_write_ready and o_read_ready are ANDed with !(i_read || i_wrt)
@@ -61,22 +61,16 @@ bind bram_tree hwpq_spec #(
 // ---------------------------------------------------------------------------
 // BASELINE VARIANT -- black-box spec only, NO white-box addendum.
 // ---------------------------------------------------------------------------
-// The aux bind is omitted: it reaches for `fsm_idle` and `filling`, signals the
-// FIXES created (406c076, 742d0c3). Against pre-fix RTL it gives a tool diagnostic and
-// nothing elaborates -- the same wall F-25 records. Baseline measurement of this
-// module is BLACK-BOX ONLY; white-box rows must be marked unavailable, never
-// inferred. That matters here specifically: the sweep measured F-32 as caught by
-// exactly ONE property, and it is white-box, so a defect of that shape is
-// invisible to this table by construction.
+// The aux bind is omitted: it reaches for `fsm_idle` and `filling`, signals a
+// later fix created. Against pre-fix RTL the elaboration fails and nothing
+// elaborates. Baseline measurement of this module is BLACK-BOX ONLY; white-box
+// rows must be marked unavailable, never inferred -- a defect caught by exactly
+// one white-box property is invisible to this table by construction.
 
 
-// Reset harness -- the elaboration top for this module's proofs.
-//
-// the tool's `reset` takes a SIMPLE PIN constraint (compound expressions are
-// rejected, a tool diagnostic) and pins it inactive for all time after initialisation, so
-// `reset ~i_RSTn` makes a second reset unreachable (F-14). Driving the DUT from
-// (i_init_RSTn & i_RSTn) moves the pinning onto i_init_RSTn and leaves i_RSTn
-// free.
+// Reset harness -- the elaboration top for this module's proofs. The tool
+// holds the declared reset inactive after init; declaring i_init_RSTn keeps
+// the DUT's i_RSTn free for mid-operation resets.
 //
 // It matters more here than on any module so far: bram_tree's per-node capacity
 // fields live in the RAM, the RAM has no reset port, and its `initial` fill is

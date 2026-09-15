@@ -4,7 +4,9 @@
 #
 # Expect: 1 cex on a_head_not_placeholder (8 proven/1 cex)
 #
-# WHY A PATCH AND NOT A REVERT: reverting 170d1c9 conflicts; later edits touch the same assigns. This removes the same guard term from all four register modules.
+# WHY A PATCH AND NOT A REVERT: reverting the fixing commit conflicts; later
+# edits touch the same assigns. This removes the same guard term from all four
+# register modules.
 diff --git a/hwpq/register_array/src/register_array.sv b/hwpq/register_array/src/register_array.sv
 index 1ce22b3..3114036 100644
 --- a/hwpq/register_array/src/register_array.sv

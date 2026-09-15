@@ -102,7 +102,7 @@ set all_ok [expr {$all_ok & [run_case "bounded-only rejected" 1 "
 
 # 8. a multiply-driven design -> 1, WITHOUT proving.
 #    The property table below is a clean sweep, so anything other than exit 1
-#    means the gate did not run or did not stop the run. F-21.
+#    means the gate did not run or did not stop the run.
 set all_ok [expr {$all_ok & [run_case "multiply-driven design rejected" 1 "
     set STUB_MD {bram_inst.ram\[0\] bram_inst.ram\[1\]}
     set STUB_TABLE \[dict create \
@@ -119,9 +119,9 @@ set all_ok [expr {$all_ok & [run_case "clean drivers, real cex still fails" 1 "
         {type {cover} status {covered proven}} {c1}\]
     $common"]}]
 
-# 10. a FAILING driver query is exit 2, not exit 0. This is the F-21 lesson in
-#     its most literal form: never let an unanswerable question read as "clean".
-#     This is also the contract in formal/backend/README.md under test: a
+# 10. a FAILING driver query is exit 2, not exit 0: never let an unanswerable
+#     question read as "clean". This is also the contract in
+#     formal/backend/README.md under test: a
 #     backend that cannot answer must raise, not return {}.
 set all_ok [expr {$all_ok & [run_case "driver query error is a hard error" 2 "
     set STUB_TABLE \[dict create \
@@ -131,8 +131,9 @@ set all_ok [expr {$all_ok & [run_case "driver query error is a hard error" 2 "
     proc backend::design_info {kind} { error {query rejected} }"]}]
 
 # 11. a failed build stops the run BEFORE any property query, and says so on the
-#     line regress.sh keys the F-6 row on. property_list is rigged to raise, so
-#     a gate that did not stop the run first would exit 2 here, not 1.
+#     line regress.sh keys an elaboration-failure row on. property_list is
+#     rigged to raise, so a gate that did not stop the run first would exit 2
+#     here, not 1.
 set all_ok [expr {$all_ok & [run_case "elaboration failure stops the run" 1 "
     set STUB_ELAB_ERRORS 1
     $common

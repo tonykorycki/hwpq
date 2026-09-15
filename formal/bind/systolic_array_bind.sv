@@ -31,11 +31,10 @@
 // it pre-emptively, because a too-large MAX_SETTLE weakens both a_progress and
 // p_at_next_settle without any warning in the table.
 //
-// ASSUME_ENQ_WHEN_WREADY is GONE, and its absence is the point. It used to be
-// needed because o_write_ready and the enqueue path disagreed by one slot, so
-// the spec's "acceptance == the matching ready" decode undercounted (F-7). The
-// two are now structurally coupled, the decode is exact, and the proof holds
-// with no assumption about when the caller may write.
+// ASSUME_ENQ_WHEN_WREADY is GONE, and its absence is the point: o_write_ready
+// and the enqueue path are structurally coupled to the same threshold, so the
+// spec's "acceptance == the matching ready" decode is exact, and the proof
+// holds with no assumption about when the caller may write.
 //
 // systolic_array has no ENQ_ENA parameter at all - the enqueue datapath is
 // always present - so ENQ_ENA is passed as a literal 1 rather than forwarded.
@@ -46,9 +45,9 @@ bind systolic_array hwpq_spec #(
     .HAS_BUSY   (1'b1),
     .MAX_SETTLE (2),
     // The real capacity: the array reserves two slots for its shift network,
-    // so it holds QUEUE_SIZE-2 rather than QUEUE_SIZE (F-9). Naming it is what
-    // lets HAS_FULL be 1 here, so this module is proved with the same property
-    // set as the register designs rather than a strictly weaker one.
+    // so it holds QUEUE_SIZE-2 rather than QUEUE_SIZE. Naming it is what lets
+    // HAS_FULL be 1 here, so this module is proved with the same property set
+    // as the register designs rather than a strictly weaker one.
     .CAPACITY   (QUEUE_SIZE - 2),
     .HAS_FULL   (1'b1)
 ) u_spec (
@@ -63,16 +62,9 @@ bind systolic_array hwpq_spec #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs.
-//
-// the tool's `reset` takes a SIMPLE PIN constraint (compound expressions are
-// rejected, a tool diagnostic) and pins it inactive for all time after initialisation. So
-// `reset ~i_RSTn` makes a second reset unreachable: under that setup
-// c_reset_reasserted was PROVEN UNREACHABLE in 0.00 s, which means every
-// property in this effort was a statement about the post-first-reset run only,
-// and any defect needing a mid-operation reset was invisible. The only way to
-// keep i_RSTn free is a level above the DUT; driving it from
-// (i_init_RSTn & i_RSTn) moves the pinning onto i_init_RSTn instead.
+// Reset harness -- the elaboration top for this module's proofs. The tool
+// holds the declared reset inactive after init; declaring i_init_RSTn keeps
+// the DUT's i_RSTn free for mid-operation resets.
 //
 // It lives in this file rather than its own because bind/ is already the
 // per-module formal glue. The bind above is unaffected: it targets the module

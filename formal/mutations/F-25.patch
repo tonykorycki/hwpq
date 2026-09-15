@@ -9,14 +9,13 @@
 #   u_bram_aux.a_size_not_understated     white-box conservation
 # HEAD unmodified is 20 proven / 0 cex.
 #
-# WHY A MUTATION AND NOT A REVERT. Reverting e2e0111 is impossible, not merely
-# awkward: the detecting property is written against `filling`, a signal that only
-# exists BECAUSE of the fix. Rolling the file back to e2e0111^ elaborates to
-#   [ERROR (a tool diagnostic)] bram_tree_pipelined_bind.sv(71): 'filling' is not declared
-#                       under prefix 'u_dut'
-# so the harness cannot even build. This mutation keeps `filling`, its counter and
-# the $fell(filling) sampling point intact, and removes only the writing -- which
-# is F-25's defect exactly: nothing rewrites the memory on reset.
+# WHY A MUTATION AND NOT A REVERT. Reverting the fixing commit is impossible,
+# not merely awkward: the detecting property is written against `filling`, a
+# signal that only exists BECAUSE of the fix. Rolling the file back to before
+# that commit leaves `filling` undeclared under `u_dut`, so the harness cannot
+# even build. This mutation keeps `filling`, its counter and the $fell(filling)
+# sampling point intact, and removes only the writing -- the defect exactly:
+# nothing rewrites the memory on reset.
 diff --git a/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv b/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv
 index d2928c0..46244fe 100644
 --- a/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv

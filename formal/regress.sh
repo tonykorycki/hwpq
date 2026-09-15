@@ -2,7 +2,7 @@
 #
 # Mutation regression driver: does the suite still catch each fix's defect?
 #
-#   formal/regress.sh <finding>          one row, e.g. F-32
+#   formal/regress.sh <finding>          one row, keyed by SWEEP.tsv (see --list)
 #   formal/regress.sh --all              every row in mutations/SWEEP.tsv
 #   formal/regress.sh --list             show the manifest
 #   formal/regress.sh --replay ...       build each worktree from the HEAD each
@@ -17,25 +17,26 @@
 #      Never trust run.sh's exit code; parse the verdict block.
 #
 #   2. The CONTROL is checked first. A property that is already red at unmutated
-#      HEAD proves nothing when it is red under mutation -- that is F-24's shape,
-#      where a_occ_bounded was red for unrelated reasons at the reproduce commit.
-#      --all verifies the unmutated tree is clean before it trusts a single row.
+#      HEAD proves nothing when it is red under mutation, for a reason unrelated
+#      to the mutated defect. --all verifies the unmutated tree is clean before
+#      it trusts a single row.
 #
 #      NOTE ON THE WORD: this is the CONTROL run, not the "baseline". In this
-#      project `baseline` means the pre-verification RTL at 61f0575 -- see
+#      project `baseline` means the pre-verification RTL -- see
 #      formal/baseline/MANIFEST.tsv, which is a different measurement entirely.
 #
 # TWO MANIFEST COLUMNS THIS SCRIPT ACTS ON:
 #
-#   class     rtl | harness. Seventeen rows mutate the DESIGN and ask whether the
-#             instrument still sees the defect. F-14 mutates the INSTRUMENT and
-#             asks whether it is load-bearing at all. The script does not branch
-#             on this -- it reports it, because those are different questions and
-#             a manifest that cannot tell them apart cannot say which it answered.
+#   class     rtl | harness. Most rows mutate the DESIGN and ask whether the
+#             instrument still sees the defect. A harness row mutates the
+#             INSTRUMENT and asks whether it is load-bearing at all. The script
+#             does not branch on this -- it reports it, because those are
+#             different questions and a manifest that cannot tell them apart
+#             cannot say which it answered.
 #
 #   head      the HEAD each row's outcome was MEASURED at. NOT the "baseline" --
 #             that word is taken: formal/baseline/MANIFEST.tsv records the
-#             pre-verification RTL at 61f0575, a different measurement.
+#             pre-verification RTL, a different measurement.
 #
 #             The sweep runs at current HEAD by design: "does the suite STILL
 #             catch this" is a question about the code as it stands, not a
@@ -81,7 +82,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 # --baseline selects the OTHER manifest. Everything downstream -- dispatch, control
 # runs, drift warning, verdict parsing, exit code -- is shared. The two manifests
 # align their column positions precisely so this stays a selector and never grows
-# into a second slightly-different driver (F-13).
+# into a second slightly-different driver.
 if [ "$BASELINE" -eq 1 ]; then
   MANIFEST="${SCRIPT_DIR}/baseline/MANIFEST.tsv"
   [ -f "${MANIFEST}" ] || { echo "no baseline manifest at ${MANIFEST}" >&2; exit 2; }
@@ -152,9 +153,9 @@ check_control() {
 
 # ---- a run that dies BEFORE the property table --------------------------------
 #
-# Two expectations share this shape and differ only in the signature: F-21/F-21b
-# stop at the multiple-driver gate, F-6 at the elaboration gate. The tell in both
-# is the gate's line in the FULL output plus an EMPTY verdict block -- sed's range
+# Two expectations share this shape and differ only in the signature: one class
+# stops at the multiple-driver gate, another at the elaboration gate. The tell in
+# both is the gate's line in the FULL output plus an EMPTY verdict block -- sed's range
 # never opens, so there is no "asserts:" line to find. That absence is the
 # discriminator, not an accident: a run that reached the property table failed
 # some other way and must not read as CAUGHT.
@@ -199,7 +200,7 @@ run_row() {
     # cls=enabling list. The CHECKOUT IS PINNED to the baseline commit and only the
     # formal/ OVERLAY follows $ref. If the checkout ever follows $ref instead, the
     # row measures TODAY's RTL while claiming the pre-verification design -- it
-    # runs, it looks plausible, and it is the F-26 assembled-config error again.
+    # runs, it looks plausible, and it is silently wrong.
     local base_commit="$mod" enabling="$cls" config="$fix" got_sha
     git worktree add "$wt" --detach "$base_commit" >/dev/null 2>&1 \
       || { echo "  ${finding}: worktree at ${base_commit} failed"; return 2; }

@@ -16,8 +16,9 @@
 # GATED vs UNGATED
 #
 # Some proofs hold only under an assumption that papers over a known, recorded
-# defect - ASSUME_FILL_FIRST for F-1, ASSUME_ENQ_WHEN_WREADY for F-7/F-8. The
-# default (gated) run applies them, so work on everything else can continue.
+# defect - ASSUME_FILL_FIRST and ASSUME_ENQ_WHEN_WREADY are the two examples in
+# this suite. The default (gated) run applies them, so work on everything else
+# can continue.
 # --ungated drops them and reproduces the defects.
 #
 # Ungated is NOT "expect failure". Each config lists exactly which properties are

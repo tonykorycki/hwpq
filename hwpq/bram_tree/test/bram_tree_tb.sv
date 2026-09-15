@@ -3,10 +3,8 @@
 // It is enqueue-capable and single-instance, so ENQ_ENA=1 selects the
 // enqueue-enabled program.
 //
-// This shim used to import bram_tree_pkg, because the module was pkg-locked to
-// one size. Now that QUEUE_SIZE and DATA_WIDTH are module parameters it supplies
-// them the same way every other shim in the suite does. The values are the ones
-// the package used to fix, so the run is unchanged.
+// QUEUE_SIZE and DATA_WIDTH are module parameters, and this shim supplies them
+// the same way every other shim in the suite does.
 
 module bram_tree_tb;
   localparam int QUEUE_SIZE = 7;   // must be 2^k - 1
@@ -32,12 +30,10 @@ module bram_tree_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  // SIMULATION.md recommendation 4, the BRAM follow-up.
-  //
   // This is the one interior check in the suite with a DEMONSTRATED defect class
-  // behind it. F-32 -- the replace-on-empty arm computing top_level.capacity + 1,
-  // which is 7 + 1 truncated to 0 in three bits -- left this module GREEN against
-  // the entire black-box formal spec. All ten interface asserts passed with the
+  // behind it: the replace-on-empty arm computing top_level.capacity + 1, which
+  // truncates to 0 at small widths, can leave this module GREEN against the
+  // entire black-box formal spec. All ten interface asserts pass with the
   // defect in place, because the design keeps two occupancy mechanisms and only
   // the correct one reaches the ports. No amount of port-level checking finds it.
   //
@@ -45,7 +41,7 @@ module bram_tree_tb;
   // formal/spec/hwpq_bram_tree_aux.sv, which is proven, so the invariant is not
   // being invented here. Sampling is gated on fsm_idle exactly as the property
   // is: the capacity field is mid-update during a descent, and a check that
-  // reads it there is F-19 all over again.
+  // reads it there catches nothing but the update in progress.
   task automatic check_root_capacity();
     if (u_dut.fsm_idle)
       assert (u_dut.top_level.capacity == QUEUE_SIZE - u_dut.queue_size)
@@ -65,8 +61,7 @@ module bram_tree_tb;
   // ordering property can tell a maximum from a non-maximum but cannot
   // distinguish degrees among three or more. Simulation runs at DATA_WIDTH=16.
   // Ordering among many distinct values is exactly the region the proofs cannot
-  // enter, which is what the division of labour in SIMULATION.md says the
-  // testbench should own.
+  // enter, and simulation is what fills that gap.
   //
   // LAYOUT, read off the RTL rather than assumed. bram_inst.ram is indexed by
   // heap position, children of p are 2p+1 and 2p+2, and the word is the packed
@@ -76,7 +71,8 @@ module bram_tree_tb;
   // against ram[0] instead of top_level would be a false finding generator.
   //
   // Gated on fsm_idle, like every other check here. Mid-descent the memory is
-  // half-rewritten, and a window that opens while its signals are moving is F-19.
+  // half-rewritten, and a window that opens while its signals are moving reads
+  // a heap that is not there yet.
   localparam int BT_TREE_DEPTH = $clog2(QUEUE_SIZE + 1);
   localparam int BT_NODES      = (1 << BT_TREE_DEPTH) - 1;
   localparam int BT_ADDR_W     = $clog2(BT_NODES);

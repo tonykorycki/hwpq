@@ -34,14 +34,13 @@ module bram_tree_pipelined_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  // SIMULATION.md recommendation 4, the BRAM follow-up.
   //
   // The top two levels of this design are registers rather than memory, so the
   // interesting invariants are reachable without decoding the RAM. All three are
   // transcribed verbatim from formal/spec/hwpq_bram_aux.sv, where they are
   // proven, and all three are gated on sift_done exactly as the properties are --
-  // the walk is mid-flight otherwise, and F-17 was a whole retracted finding
-  // caused by a window that opened one cycle too early.
+  // the walk is mid-flight otherwise, and a window that opens one cycle too
+  // early reads a heap that is not there yet.
   //
   // Nothing here is invented for simulation. The heap invariant over the deeper
   // levels lives in the BRAM and is deliberately left out: it is not proven for
@@ -71,12 +70,11 @@ module bram_tree_pipelined_tb;
   // NOT proven for this module, and that is precisely why it belongs here.
   // Formal reaches this design only at QUEUE_SIZE=7 -- TREE_DEPTH=3, exactly one
   // BRAM level, so a defect needing two levels is out of scope -- and 15 does
-  // not converge at all (F-18). It also runs at DATA_WIDTH=2, where ordering
+  // not converge at all. It also runs at DATA_WIDTH=2, where ordering
   // properties cannot distinguish degrees among three or more payloads. This
   // testbench runs QUEUE_SIZE=15 and DATA_WIDTH=16: two BRAM levels and a real
   // payload alphabet. That region is unreachable by proof by construction, so
-  // simulation is the only thing that can cover it -- the division of labour
-  // SIMULATION.md sets out.
+  // simulation is the only thing that can cover it.
   //
   // LAYOUT, read off the RTL. Levels 0 and 1 are registers (level_0, level_1[2]);
   // levels 2..TREE_DEPTH-1 are one rams_tdp_rf_rf per level in the gen_bram
@@ -90,9 +88,10 @@ module bram_tree_pipelined_tb;
   // levels are flattened into one array by a generate loop and the walk reads
   // the copy.
   //
-  // Gated on sift_done && !filling, matching the proven properties above. F-17
-  // was a whole retracted finding caused by a window that opened inside the
-  // reset sweep, and sift_done resets HIGH, so !filling is load-bearing here.
+  // Gated on sift_done && !filling, matching the proven properties above.
+  // sift_done resets HIGH, so without !filling a window opens inside the
+  // reset sweep and reads a tree that is still being written; !filling is
+  // load-bearing here.
   localparam int BTP_TREE_DEPTH = $clog2(QUEUE_SIZE + 1);
   localparam int BTP_MAX_LVL_N  = 1 << (BTP_TREE_DEPTH - 1);
 
@@ -129,12 +128,11 @@ module bram_tree_pipelined_tb;
 
   // X on the sift comparator inputs -- a tripwire on the deepest-level override.
   //
-  // NOT a defect detector, and the distinction matters. F-23 -- the six
-  // out-of-range child accesses this watches for -- is RETRACTED. Reverting
-  // fe40af5 at HEAD leaves formal fully green (20 proven / 0 cex), leaves this
-  // suite green with byte-identical cycle histograms, and synthesises 13 LUTs
-  // SMALLER with identical sequential state. Nothing misbehaves, in simulation,
-  // in proof, or in silicon.
+  // NOT a defect detector, and the distinction matters. The six out-of-range
+  // child accesses this watches for are provably benign: removing their guards
+  // leaves formal fully green, leaves this suite green with byte-identical
+  // cycle histograms, and synthesises smaller with identical sequential state.
+  // Nothing misbehaves, in simulation, in proof, or in silicon.
   //
   // What makes the X harmless is an override at the end of the sift arm, present
   // since before the guards existed:
@@ -151,8 +149,8 @@ module bram_tree_pipelined_tb;
   //
   // Its whole value is that it discriminates, and the numbers are measured rather
   // than argued: at QUEUE_SIZE=15 the walk spends 1452 cycles at the deepest
-  // level either way, and the count below is 0 with the guards and 2159 with
-  // `git revert --no-commit fe40af5`. Measured 2026-09-01.
+  // level either way, and the count below is 0 with the guards and 2159 without
+  // them.
   //
   // Reported once. The condition holds for thousands of cycles once true, and the
   // run must fail with a readable log rather than 2159 identical lines.

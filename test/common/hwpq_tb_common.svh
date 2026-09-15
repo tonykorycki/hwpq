@@ -18,7 +18,7 @@
     `define TB_CAPACITY <expr>
       Defaults to QUEUE_SIZE. The number of elements the DUT actually holds, which
       is what the readies are checked against. systolic_array reserves two slots
-      as shift-chain margin (F-9), so its shim sets QUEUE_SIZE-2.
+      as shift-chain margin, so its shim sets QUEUE_SIZE-2.
 
     `define TB_CHECK_INTERNAL <task_call>;
       Defaults to nothing. A statement invoked at every settled point, for a shim
@@ -59,7 +59,7 @@
 
 // Elements the DUT will actually hold. QUEUE_SIZE everywhere except
 // systolic_array, whose `full` is (size >= QUEUE_SIZE - 2) -- the two reserved
-// slots are the shift chain's margin, and one is provably not enough (F-9).
+// slots are the shift chain's margin, and one is provably not enough.
 `ifndef TB_CAPACITY
   `define TB_CAPACITY QUEUE_SIZE
 `endif
@@ -89,8 +89,8 @@ int                    ref_queue_size = 0;
 // Is the readies-vs-model check in force? An ENQ_ENA=0 DUT boots physically full
 // of '1 placeholders while size resets to 0, and o_read_ready is gated on the
 // head not being one, so !o_read_ready and a non-empty model coexist legitimately
-// until the fill completes. Formal scopes the same window with ASSUME_FILL_FIRST
-// (CH-4). Enqueue-capable builds never seat a placeholder, so it is always set.
+// until the fill completes. Formal scopes the same window with ASSUME_FILL_FIRST.
+// Enqueue-capable builds never seat a placeholder, so it is always set.
 bit fill_complete = 0;
 
 logic [DATA_WIDTH-1:0] ref_queue_prev [$:QUEUE_SIZE-1];
@@ -98,7 +98,7 @@ int                    ref_queue_prev_size = 0;
 
 logic [DATA_WIDTH-1:0] o_data_prev;
 
-// Payload alphabet (SIMULATION.md recommendation 5).
+// Payload alphabet.
 //
 // $urandom_range(1, 1023) over a 16-bit payload means ties essentially never
 // occur, so the comparators are least tested exactly where ordering and
@@ -206,11 +206,11 @@ task automatic clear_cmd();
   i_data = 0;
 endtask
 
-//  The readies, checked against the model (SIMULATION.md recommendation 3)
+//  The readies, checked against the model.
 //
-// F-2: the model's updates used to be gated on the DUT's own ready signals, so
-// it could not disagree with the DUT. "Refuses work it should accept" was
-// structurally uncatchable -- which is exactly F-7, and why simulation missed it.
+// Gating the model's updates on the DUT's own ready signals would make it
+// unable to disagree with the DUT: "refuses work it should accept" would be
+// structurally uncatchable.
 //
 // This inverts the dependency. The model owns its occupancy and the readies are
 // an assertion about it, not an input to it.
@@ -242,7 +242,7 @@ task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
     poll_settled();  // the DUT refuses commands while settling
     check_readies("before enqueue");
     // The MODEL decides whether there is room; o_write_ready is asserted against
-    // that decision rather than consulted for it (F-2).
+    // that decision rather than consulted for it.
     accepted = 0;
     if (ref_queue_size != `TB_CAPACITY) begin
       i_wrt  = 1;
@@ -275,7 +275,7 @@ task automatic dequeue();
     poll_settled();
     check_readies("before dequeue");
     // The MODEL decides whether there is data; o_read_ready is asserted against
-    // that decision rather than consulted for it (F-2).
+    // that decision rather than consulted for it.
     accepted = 0;
     if (ref_queue_size != 0) begin
       i_wrt  = 0;
@@ -311,7 +311,7 @@ task automatic replace(input logic [DATA_WIDTH-1:0] value);
     i_data = value;
     if (ref_queue_size == 0) begin
       // Empty queue: replace degenerates to an insert. Decided by the model, not
-      // by o_read_ready (F-2).
+      // by o_read_ready.
       ref_queue[ref_queue_size] = value;
       ref_queue_size++;
     end else begin
@@ -357,15 +357,15 @@ task automatic apply_reset();
   end
 endtask
 
-//  Reset during operation (SIMULATION.md recommendation 1)
+//  Reset during operation
 //
 // apply_reset() runs once, before any stimulus, so a defect that needs a reset
-// arriving while the queue holds data is unreachable by construction. bram_tree's
-// F-29 -- reset never restoring the node memory -- is exactly that shape, and no
-// amount of extra stimulus finds it. These tasks assert reset at points inside a
-// live operation and check the DUT comes back genuinely empty.
+// arriving while the queue holds data is unreachable by construction -- a
+// design whose reset does not restore its node memory is exactly that shape,
+// and no amount of extra stimulus finds it. These tasks assert reset at points
+// inside a live operation and check the DUT comes back genuinely empty.
 //
-// Formal (F-15) proves every proven architecture recovers from a reset at any
+// Formal proves every proven architecture recovers from a reset at any
 // reachable moment, so this phase is expected to pass everywhere. A failure here
 // is a real finding.
 
@@ -382,7 +382,7 @@ endtask
 // ONLY valid immediately after model_reset(): the ENQ_ENA=0 arm assumes every
 // slot still holds a placeholder, and it must fill completely before any read,
 // because a resident placeholder outranks the payload and gates o_read_ready
-// low (F-1, the fill-before-read contract).
+// low -- the fill-before-read contract.
 task automatic refill_after_reset();
   begin
     for (int i = 0; i < QUEUE_SIZE; i++) begin
@@ -450,11 +450,10 @@ task automatic refill_and_drain_check(input string what);
   end
 endtask
 
-// Drain what the model says is held, comparing the whole ordered sequence
-// (SIMULATION.md recommendation 4). Every other check here reads o_data alone,
-// so a differently shaped but still valid heap is indistinguishable from the
-// port -- which is why F-32, a corrupted root capacity, left bram_tree green
-// against the entire black-box formal spec.
+// Drain what the model says is held, comparing the whole ordered sequence.
+// Every other check here reads o_data alone, so a differently shaped but still
+// valid heap is indistinguishable from the port -- which is how a corrupted
+// root capacity can leave a DUT green against the entire black-box formal spec.
 task automatic drain_and_compare(input string what);
   int held;
   begin
@@ -500,14 +499,14 @@ task automatic reset_case(input operation_t op, input int delay, input int predr
   end
 endtask
 
-//  Conventional ready/valid master (SIMULATION.md recommendation 6)
+//  Conventional ready/valid master
 //
 // Every task above samples ready with the command lines deasserted and only
 // then drives. None of them holds valid waiting for ready, which is what an
-// ordinary master does. bram_tree derived BOTH readies from the command inputs
-// (F-28), so ready and valid could never be high together: a master like this
-// deadlocks against it, and the polite tasks could not see that at all. It also
-// inflated the reported minimum latency by one cycle.
+// ordinary master does. A DUT that derives BOTH readies from the command
+// inputs makes ready and valid unable to be high together: a master like this
+// deadlocks against it, and the polite tasks cannot see that at all. It also
+// inflates the reported minimum latency by one cycle.
 
 // Hold valid until the DUT raises ready, then let the transfer happen.
 // Ready is sampled at the negedge with valid still asserted, so a DUT that
@@ -554,9 +553,8 @@ endtask
 
 // The readies must be a function of registered state, not of the command lines.
 // Drive each command encoding BETWEEN clock edges, so nothing is captured, and
-// check neither ready moves. This is now a library-wide invariant -- bram_tree
-// was the last exception and F-28 fixed it -- so it is worth enforcing before
-// it drifts back.
+// check neither ready moves. This is a library-wide invariant, worth enforcing
+// on every architecture so it does not drift back.
 task automatic check_readies_independent(input string where);
   logic wr0, rd0;
   begin
@@ -586,17 +584,16 @@ task automatic check_readies_independent(input string where);
   end
 endtask
 
-//  Impolite stimulus (SIMULATION.md recommendation 2)
+//  Impolite stimulus
 //
 // The tb walks up to every handshake violation and turns around: enqueue()
 // prints "Queue full, skipping enqueue" and dequeue() consults o_read_ready
-// first. The largest single category in FINDINGS.md lives in the space that
-// politeness excludes -- F-7, F-8, F-30 and F-31 are all "a refused command is
-// not inert". These tasks issue the command anyway.
+// first. A refused command that is not inert lives entirely in the space that
+// politeness excludes. These tasks issue the command anyway.
 //
 // Note the shape of the assertion: it asserts that NOTHING happens. A refused
-// command doing nothing is the contract (the F-8 principle); a refused command
-// doing something is the defect.
+// command doing nothing is the contract; a refused command doing something is
+// the defect.
 
 // Drive a raw command with no ready check and no model update, then settle.
 task automatic poke(input logic wrt, input logic read, input logic [DATA_WIDTH-1:0] value);
@@ -831,7 +828,7 @@ task automatic test_impolite();
 
     // A dequeue on an empty queue. ENQ_ENA=1 boots all-zero; ENQ_ENA=0 boots
     // physically full of '1 placeholders but logically empty and gates
-    // o_read_ready on the head not being one (F-1). Both must refuse the read.
+    // o_read_ready on the head not being one. Both must refuse the read.
     apply_reset();
     model_reset();
     assert (!o_read_ready)
@@ -921,7 +918,7 @@ task automatic test_ready_valid_master();
     check_readies_independent("full");
 
     for (int i = 0; i < stress_test_iters; i++) begin
-      // The model decides which command is legal, as everywhere else (F-2).
+      // The model decides which command is legal, as everywhere else.
       random_operation = ENQ_ENA ? $urandom_range(1, 3) : $urandom_range(2, 3);
       if (random_operation == ENQUEUE && ref_queue_size == `TB_CAPACITY) random_operation = REPLACE;
       if (random_operation == DEQUEUE && ref_queue_size == 0)            random_operation = REPLACE;

@@ -26,7 +26,7 @@ module register_tree_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  // SIMULATION.md recommendation 4: the heap invariant, by hierarchical
+  // The heap invariant, checked by hierarchical
   // reference. `queue` is an implicit binary heap -- children of i are 2i+1 and
   // 2i+2 -- and NODES_NEEDED == QUEUE_SIZE for the 2^k-1 sizes this module
   // requires. Safe to check at every settled point because formal proves exactly

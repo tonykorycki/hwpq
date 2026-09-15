@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# the formal tool driver for the HWPQ formal suite.
+# Driver for the HWPQ formal suite.
 #
 #   formal/run.sh <module>              prove it; expect exit 0
 #   formal/run.sh --selftest <module>   break one property on purpose;
@@ -8,7 +8,7 @@
 #   formal/run.sh --ungated <module>    drop the workaround assumptions and
 #                                       reproduce the recorded shortcomings;
 #                                       expect exit 0 (see below)
-#   formal/run.sh --all                 every module with a tcl script
+#   formal/run.sh --all                 every module with a config
 #   formal/run.sh --timeout <secs> ...  wall-clock ceiling per configuration
 #                                       (default 1800; a run that exceeds it is
 #                                       mis-sized, not merely slow)
@@ -20,19 +20,25 @@
 # default (gated) run applies them, so work on everything else can continue.
 # --ungated drops them and reproduces the defects.
 #
-# Ungated is NOT "expect failure". Each tcl lists exactly which properties are
-# supposed to break (HWPQ_EXPECT_CEX), so the run still exits 0 if and only if
+# Ungated is NOT "expect failure". Each config lists exactly which properties are
+# supposed to break (expect_cex_ungated), so the run still exits 0 if and only if
 # precisely those fail. A defect that gets FIXED therefore fails the ungated
 # run - "expected cex that did NOT fire" - which is the prompt to retire the
 # assumption. That makes the shortcomings a regression test rather than a
 # footnote.
 #
-# Everything a run generates - the tool scratch, console log, property summary -
+# Everything a run generates - tool scratch, console log, property summary -
 # goes to formal/fv_proj/<module>[_selftest][_ungated]/ and nowhere else, so
 # the whole lot is one gitignored tree and one directory to delete.
 #
 # Runs from any working directory: paths resolve against the repo root.
-# Requires `fv_tool` on PATH 
+#
+# BACKEND
+#
+# No tool is named in this repository. FORMAL_BACKEND selects one of
+# formal/backend/<name>.sh; see formal/backend/README.md. The licence-free
+# `stub` and `dryrun` backends ship with the repo, so --all is runnable
+# anywhere; a backend for a real tool is written locally and never committed.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,9 +63,8 @@ while [ $# -gt 0 ]; do
     --selftest) SELFTEST=1 ;;
     --ungated)  UNGATED=1 ;;
     --timeout)  shift; TIMEOUT="$1" ;;
-    --all)      for f in formal/tcl/*.tcl; do
-                  b="$(basename "$f" .tcl)"
-                  [ "$b" = "common" ] || MODULES+=("$b")
+    --all)      for f in formal/config/*.cfg; do
+                  MODULES+=("$(basename "$f" .cfg)")
                 done ;;
     -h|--help)  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)         echo "unknown option: $1" >&2; exit 2 ;;
@@ -73,17 +78,72 @@ if [ "${#MODULES[@]}" -eq 0 ]; then
   exit 2
 fi
 
-if ! command -v fv_tool >/dev/null 2>&1; then
-  echo "ERROR: fv_tool not found on PATH." >&2
-  echo "       On CEPool: module load <vendor-env-module>" >&2
+# A real tool's backend is never committed, so it is absent from every git
+# worktree regress.sh builds. FORMAL_BACKEND_DIR lets it live anywhere -- this
+# checkout, or outside the repository -- and is exported so drive.tcl sources the
+# Tcl half from the same place.
+want_dir="${FORMAL_BACKEND_DIR:-${REPO_ROOT}/formal/backend}"
+if ! FORMAL_BACKEND_DIR="$(cd "$want_dir" 2>/dev/null && pwd)"; then
+  echo "ERROR: FORMAL_BACKEND_DIR does not exist: ${want_dir}" >&2
   exit 2
 fi
+export FORMAL_BACKEND_DIR
+
+backend_names() {
+  ls "${FORMAL_BACKEND_DIR}"/*.sh 2>/dev/null | while read -r f; do basename "$f" .sh; done
+}
+
+# Source one backend and report whether it can actually run here.
+pick_backend() {
+  [ -f "${FORMAL_BACKEND_DIR}/$1.sh" ] || return 1
+  # shellcheck source=/dev/null
+  . "${FORMAL_BACKEND_DIR}/$1.sh"
+  backend_available
+}
+
+BACKEND="${FORMAL_BACKEND:-}"
+if [ -z "$BACKEND" ]; then
+  # Autodetect among REAL tools only. stub and dryrun prove nothing, and picking
+  # one silently turns "no tool here" into a green run -- which is how a self-test
+  # once passed against an empty property table. They run only when named.
+  for cand in $(backend_names | grep -vxE 'stub|dryrun'); do
+    if pick_backend "$cand"; then BACKEND="$cand"; break; fi
+  done
+  if [ -z "$BACKEND" ]; then
+    echo "ERROR: no runnable formal tool backend in ${FORMAL_BACKEND_DIR}." >&2
+    echo "       Load the tool's environment first, or name a licence-free backend:" >&2
+    echo "       FORMAL_BACKEND=stub (plumbing) or FORMAL_BACKEND=dryrun (print the" >&2
+    echo "       build). Neither proves anything about the design." >&2
+    exit 2
+  fi
+else
+  if [ ! -f "${FORMAL_BACKEND_DIR}/${BACKEND}.sh" ]; then
+    echo "ERROR: no such backend: ${FORMAL_BACKEND_DIR}/${BACKEND}.sh" >&2
+    echo "       available: $(backend_names | tr '\n' ' ')" >&2
+    exit 2
+  fi
+  if ! pick_backend "$BACKEND"; then
+    echo "ERROR: backend '${BACKEND}' is not runnable here." >&2
+    echo "       Load the tool's environment first." >&2
+    exit 2
+  fi
+fi
+case "$BACKEND" in
+  stub|dryrun) echo "backend: ${BACKEND}   (licence-free -- PROVES NOTHING about the design)" ;;
+  *)           echo "backend: ${BACKEND}" ;;
+esac
+
+# The modes travel to drive.tcl in the environment rather than on a command
+# line, because a tool's option for pre-running Tcl is spelled differently
+# across releases while $::env() is the same everywhere.
+export HWPQ_SELFTEST="$SELFTEST"
+export HWPQ_UNGATED="$UNGATED"
 
 overall=0
 for m in "${MODULES[@]}"; do
-  tcl="formal/tcl/${m}.tcl"
-  if [ ! -f "$tcl" ]; then
-    echo "ERROR: no such proof script: $tcl" >&2
+  cfg="formal/config/${m}.cfg"
+  if [ ! -f "$cfg" ]; then
+    echo "ERROR: no such config: $cfg" >&2
     overall=2; continue
   fi
 
@@ -108,39 +168,17 @@ for m in "${MODULES[@]}"; do
   fi
   echo "############################################################"
 
-  # -proj is per-run so parallel runs cannot clobber each other's scratch.
-  # The mode flags travel in the environment: fv_tool's option for pre-running Tcl is
-  # spelled differently across releases, $::env() is not. HWPQ_OUTDIR is how
-  # common.tcl learns where to put the summary, so the path is built once here
-  # rather than reconstructed in Tcl.
-  # A separate project dir per mode: the two configurations elaborate
-  # differently, and sharing scratch invites a stale-lock collision.
-  # A fv_tool killed mid-run (Ctrl-C, a timeout, a dropped SSH session) leaves a lock
-  # behind, and the next run then reports "Cannot obtain ownership of project
-  # directory" -- which run.sh classifies as a proof FAILURE. That misreads as a
-  # real regression and has already cost several false alarms. Clear a lock only
-  # when it is from THIS host and its process is gone; a live run, or one on
-  # another CEPool node, is left strictly alone.
-  if [ -d "$outdir" ]; then
-    for lk in "$outdir"/*.lock; do
-      [ -e "$lk" ] || continue
-      b="$(basename "$lk" .lock)"
-      pid="${b##*.}"
-      lkhost="${b%.*}"
-      case "$pid" in
-        ''|*[!0-9]*) continue ;;   # not host.PID.lock -- do not touch it
-      esac
-      if [ "$lkhost" = "$(hostname)" ] && ! ps -p "$pid" >/dev/null 2>&1; then
-        echo "note: clearing stale the tool lock from dead PID ${pid} (${lk})"
-        rm -f "$lk"
-      fi
-    done
-  fi
+  # The scratch directory is per-run so parallel runs cannot clobber each
+  # other's state, and per-mode because the two configurations elaborate
+  # differently. Whatever cleanup that costs is the backend's business --
+  # stale-lock handling, for instance, is specific to the tool that left it.
+  backend_prepare "$outdir"
 
-  HWPQ_SELFTEST="$SELFTEST" HWPQ_UNGATED="$UNGATED" HWPQ_OUTDIR="$outdir" \
-    timeout --signal=TERM --kill-after=30 "$TIMEOUT" \
-    fv_tool -batch -tcl "$tcl" -proj "$outdir" 2>&1 | tee "$log"
-  rc="${PIPESTATUS[0]}"
+  # The backend owns the invocation, including the timeout: it is the only thing
+  # that knows the tool's command line. $TIMEOUT is in scope because the backend
+  # was sourced into this shell.
+  backend_launch "$cfg" "$outdir" "$log"
+  rc=$?
 
   # 124 is timeout(1) reporting that it had to kill the run.
   if [ "$rc" -eq 124 ]; then
@@ -153,12 +191,24 @@ for m in "${MODULES[@]}"; do
   fi
 
   if [ "$SELFTEST" -eq 1 ]; then
-    if [ "$rc" -eq 1 ]; then
-      echo "==> ${m}: self-test PASSED (harness correctly reported failure, exit 1)"
+    # Exit 1 alone is not a pass: an empty property table, a failed build and a
+    # backend that proves nothing all exit 1 too. The self-test property itself
+    # must come back as a counterexample.
+    st_verdict="$(sed -n '/verdict =====/,/RESULT:/p' "$log")"
+    if [ "$rc" -eq 1 ] && grep -q 'unexpected counterexamples' <<<"$st_verdict" \
+       && grep -qE '(^|[.[:space:]])a_selftest_must_fail\b' <<<"$st_verdict"; then
+      echo "==> ${m}: self-test PASSED (a_selftest_must_fail reported as a counterexample)"
     else
-      echo "==> ${m}: self-test FAILED -- expected exit 1, got ${rc}." >&2
-      echo "    The harness cannot report failures. Do not trust any green run" >&2
-      echo "    until this is fixed." >&2
+      if [ "$rc" -ne 1 ]; then
+        why="expected exit 1, got ${rc}"
+      elif [ -z "$st_verdict" ]; then
+        why="exit 1, but no property table -- the run failed before proving"
+      else
+        why="exit 1, but a_selftest_must_fail is not among the counterexamples"
+      fi
+      echo "==> ${m}: self-test FAILED -- ${why}." >&2
+      echo "    The harness has not shown it can report a failure. Do not trust any" >&2
+      echo "    green run until this is fixed. Read ${log}" >&2
       overall=1
     fi
   else

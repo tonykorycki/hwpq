@@ -1,16 +1,27 @@
 `default_nettype none
 
 /*******************************************************************************
-  systolic_array: priority queue as a systolic array of an input buffer (IB)
-  and output buffer (OB). New nodes shift through the IB, swapping bubble-sort
-  style with adjacent OB nodes so higher-priority values migrate into OB;
-  dequeuing the OB head propagates a bubble back through the array to refill it.
-  MIN_VALUE ('0) is the only reserved payload, never legal on i_data. Two of
-  QUEUE_SIZE elements are held back as shift-chain margin: the array holds
-  QUEUE_SIZE-2.
+  Module Name: systolic_array
+  Description: A priority queue implementation using a systolic array of an
+               input buffer (IB) and output buffer (OB). New nodes shift
+               through the IB, swapping bubble-sort style with adjacent OB
+               nodes so higher-priority values migrate into the
+               OB; dequeuing the OB head propagates a "bubble" back through
+               the array to refill it.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of the node's evaluation value (f)
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Enqueue signal
+          i_read - Dequeue signal
+          i_data - Node data input
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Node data output (highest priority element)
+  Constraints: MIN_VALUE ('0) is the reserved empty marker, never legal on
+               i_data. Two of QUEUE_SIZE elements are held back as
+               shift-chain margin, so the array holds QUEUE_SIZE-2.
 *******************************************************************************/
-
-`default_nettype none
 
 module systolic_array #(
     parameter int QUEUE_SIZE = 128,  // Size of the buffers (number of positions)

@@ -1,4 +1,4 @@
-# F-14 mutation -- the proof was scoped to the run after the first reset
+# F-14 mutation: the proof was scoped to the run after the first reset
 #   git apply formal/tools/mutations/F-14.patch && formal/run.sh register_array
 # Expect: 9 proven, 0 cex, c_reset_reasserted UNREACHABLE. Mutates the harness, not the design.
 --- a/formal/config/register_array.cfg

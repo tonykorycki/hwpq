@@ -43,10 +43,10 @@ module hwpq_smoke_tb;
   // reason.
   //
   // Two apply to the register_array/ENQ_ENA=1 configuration bound here:
-  //   am_payload_legal      -- i_data is never a reserved sentinel, so i_data is
+  //   am_payload_legal:       i_data is never a reserved sentinel, so i_data is
   //                            held at a legal value even between commands
   //                            rather than parked at '0.
-  //   am_tv_legal/_stable   -- tv is undriven on purpose (a free variable), and
+  //   am_tv_legal/_stable:    tv is undriven on purpose (a free variable), and
   //                            a floating tv reads as '0, which am_tv_legal
   //                            excludes. Pin it to one legal, constant value.
   initial begin

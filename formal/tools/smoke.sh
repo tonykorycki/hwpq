@@ -5,10 +5,10 @@
 # SSH round trip.
 #
 # Four checks:
-#   1. lint      -- the spec and bind elaborate together under Verilator
-#   2. polarity+ -- normal build: the plumbing property must NOT fire
-#   3. polarity- -- HWPQ_SELFTEST build: the self-test property MUST fire
-#   4. verdict   -- verdict.tcl parses, and its decisions return the right
+#   1. lint:      the spec and bind elaborate together under Verilator
+#   2. polarity+: normal build: the plumbing property must NOT fire
+#   3. polarity-: HWPQ_SELFTEST build: the self-test property MUST fire
+#   4. verdict:   verdict.tcl parses, and its decisions return the right
 #                   exit codes for clean / cex / unreachable-cover /
 #                   no-asserts / expected-cex cases
 #
@@ -16,7 +16,7 @@
 # than no harness, and this is how we know it can before trusting a green run.
 #
 # What this CANNOT do: prove anything. Simulation samples; only the formal tool
-# decides. Passing smoke.sh means "worth sending to CEPool", not "correct".
+# decides. Passing smoke.sh means "worth a real proof run", not "correct".
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,7 +86,7 @@ fi
 echo
 echo "=== 3. polarity-: the self-test property MUST fire ==="
 if build_and_run bad +define+HWPQ_SELFTEST; then
-  bad "self-test build did NOT fire -- the harness cannot report failures"
+  bad "self-test build did NOT fire: the harness cannot report failures"
 else
   rc=$?
   if [ "$rc" -eq 99 ]; then bad "self-test build did not compile"; sed 's/^/        /' "${WORK}/build_bad.log" | tail -15

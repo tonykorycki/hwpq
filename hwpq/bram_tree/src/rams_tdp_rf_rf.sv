@@ -25,7 +25,7 @@ module rams_tdp_rf_rf #(
   logic [WIDTH-1:0] ram [DEPTH-1:0];
 
   // Power-up contents: every node inactive, value zero, capacity set to the size
-  // of the subtree it roots. Simulation only -- synthesis takes this as a
+  // of the subtree it roots. Simulation only: synthesis takes this as a
   // bitstream init value, and nothing restores it on a reset. The high
   // (WIDTH-CAP_WIDTH) bits are the `active` flag and the value field, both zero.
   initial begin
@@ -43,13 +43,13 @@ module rams_tdp_rf_rf #(
   // array multiply driven. Simulation is unaffected, because the two ports write
   // different addresses and the non-blocking assignments land on different
   // elements, but a formal tool has to resolve the drivers instead and writes
-  // become unreliably observable in the array -- a write to address 0 need not be
+  // become unreliably observable in the array: a write to address 0 need not be
   // there on the next cycle, and every memory-dependent property is proved against
   // that.
   //
   // Merging is sound because bram_tree ties clka and clkb to i_CLK; a genuinely
   // dual-clock instance would need a different model. The read paths stay
-  // per-port and per-clock, and read-first ordering is preserved -- the outputs
+  // per-port and per-clock, and read-first ordering is preserved: the outputs
   // still sample `ram` before this cycle's writes land, because every assignment
   // here is non-blocking.
   always @(posedge clka) begin

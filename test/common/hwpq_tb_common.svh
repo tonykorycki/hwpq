@@ -22,7 +22,7 @@
 
     `define TB_CHECK_INTERNAL <task_call>;
       Defaults to nothing. A statement invoked at every settled point, for a shim
-      that can reach inside its DUT -- the tree shims check the heap invariant by
+      that can reach inside its DUT: the tree shims check the heap invariant by
       hierarchical reference. The task itself is defined in the shim, after the
       include; a forward reference to it from this body is fine, but any VARIABLE
       it touches must be declared before the include, because iverilog binds
@@ -37,7 +37,7 @@
 
   HOW A RUN IS JUDGED PASS/FAIL:
     run_sim.sh treats the simulator's exit status as the only pass signal, so a failing
-    run MUST end in $fatal -- that is the one construct iverilog exits nonzero on.
+    run MUST end in $fatal: that is the one construct iverilog exits nonzero on.
     $error alone does not: it prints, then $finish still exits 0 and the run reports PASS.
     This body already does the right thing (errors accumulate in error_count, and the
     final block turns a nonzero count into $fatal). Any standalone tb added alongside
@@ -58,7 +58,7 @@
 `endif
 
 // Elements the DUT will actually hold. QUEUE_SIZE everywhere except
-// systolic_array, whose `full` is (size >= QUEUE_SIZE - 2) -- the two reserved
+// systolic_array, whose `full` is (size >= QUEUE_SIZE - 2): the two reserved
 // slots are the shift chain's margin, and one is provably not enough.
 `ifndef TB_CAPACITY
   `define TB_CAPACITY QUEUE_SIZE
@@ -102,8 +102,8 @@ logic [DATA_WIDTH-1:0] o_data_prev;
 //
 // $urandom_range(1, 1023) over a 16-bit payload means ties essentially never
 // occur, so the comparators are least tested exactly where ordering and
-// tie-breaking bugs live. The proofs run at DATA_WIDTH=2 -- two legal values
-// once both sentinels are reserved -- where every comparison is a tie. This
+// tie-breaking bugs live. The proofs run at DATA_WIDTH=2 (two legal values
+// once both sentinels are reserved), where every comparison is a tie. This
 // narrows the stimulus to 1..3 for one phase to force duplicates.
 //
 // Both reserved values stay off the alphabet either way: '0 is the empty marker
@@ -217,7 +217,7 @@ endtask
 task automatic check_readies(input string where);
   begin
     // Unconditional: the heap invariant holds through the fill phase too, and
-    // formal proves exactly this for the tree family -- a_timer_is_sound in
+    // formal proves exactly this for the tree family: a_timer_is_sound in
     // formal/spec/hwpq_tree_aux.sv establishes head_valid |-> heap_holds.
     `TB_CHECK_INTERNAL
     if (fill_complete) begin
@@ -360,7 +360,7 @@ endtask
 //  Reset during operation
 //
 // apply_reset() runs once, before any stimulus, so a defect that needs a reset
-// arriving while the queue holds data is unreachable by construction -- a
+// arriving while the queue holds data is unreachable by construction; a
 // design whose reset does not restore its node memory is exactly that shape,
 // and no amount of extra stimulus finds it. These tasks assert reset at points
 // inside a live operation and check the DUT comes back genuinely empty.
@@ -379,10 +379,10 @@ task automatic model_reset();
 endtask
 
 // Fill a freshly reset queue to capacity.
-// ONLY valid immediately after model_reset(): the ENQ_ENA=0 arm assumes every
+// Only valid immediately after model_reset(): the ENQ_ENA=0 arm assumes every
 // slot still holds a placeholder, and it must fill completely before any read,
 // because a resident placeholder outranks the payload and gates o_read_ready
-// low -- the fill-before-read contract.
+// low: the fill-before-read contract.
 task automatic refill_after_reset();
   begin
     for (int i = 0; i < QUEUE_SIZE; i++) begin
@@ -431,7 +431,7 @@ task automatic check_reset_emptied(input string what);
 endtask
 
 // Refill and drain the whole queue in order. A reset that left stale nodes behind
-// shows up here and nowhere else -- the head alone cannot distinguish a clean heap
+// shows up here and nowhere else: the head alone cannot distinguish a clean heap
 // from one still holding pre-reset elements.
 task automatic refill_and_drain_check(input string what);
   begin
@@ -452,7 +452,7 @@ endtask
 
 // Drain what the model says is held, comparing the whole ordered sequence.
 // Every other check here reads o_data alone, so a differently shaped but still
-// valid heap is indistinguishable from the port -- which is how a corrupted
+// valid heap is indistinguishable from the port, which is how a corrupted
 // root capacity can leave a DUT green against the entire black-box formal spec.
 task automatic drain_and_compare(input string what);
   int held;
@@ -474,8 +474,8 @@ task automatic drain_and_compare(input string what);
 endtask
 
 // Drain the whole queue, check the sequence, and restore it to capacity.
-// A replace-only DUT can hold at most one element once drained -- replace pops
-// the head as it pushes -- so restoring means a reset and a fresh fill, which is
+// A replace-only DUT can hold at most one element once drained (replace pops
+// the head as it pushes), so restoring means a reset and a fresh fill, which is
 // uniform across both builds anyway.
 task automatic drain_compare_refill(input string what);
   begin
@@ -524,7 +524,7 @@ task automatic master_op(input operation_t op, input logic [DATA_WIDTH-1:0] valu
     i_data = value;
     // Settle the combinational cone BEFORE sampling. Reading a ready in the same
     // timestep it was driven returns the stale value, which would make this
-    // master indistinguishable from the polite tasks -- it would never actually
+    // master indistinguishable from the polite tasks: it would never actually
     // wait, and the deadlock it exists to detect would go unseen.
     #1;
 
@@ -539,7 +539,7 @@ task automatic master_op(input operation_t op, input logic [DATA_WIDTH-1:0] valu
         @(negedge i_CLK);
         guard++;
         if (guard > SETTLE_TIMEOUT)
-          $fatal(1, "master_op: DUT never raised ready with valid held (op=%0d, o_write_ready=%0b o_read_ready=%0b) -- a ready derived from the request deadlocks a conventional master",
+          $fatal(1, "master_op: DUT never raised ready with valid held (op=%0d, o_write_ready=%0b o_read_ready=%0b): a ready derived from the request deadlocks a conventional master",
                  op, o_write_ready, o_read_ready);
       end
     end
@@ -837,7 +837,7 @@ task automatic test_impolite();
     refill_and_drain_check("after dequeue-on-empty");
 
     // An enqueue on a full queue. Only meaningful where !o_write_ready really
-    // means full -- see TB_TRACKS_FULL. An ENQ_ENA=0 DUT has no enqueue
+    // means full; see TB_TRACKS_FULL. An ENQ_ENA=0 DUT has no enqueue
     // datapath, so the check is trivially true there and kept for uniformity.
     if (`TB_TRACKS_FULL) begin
       apply_reset();

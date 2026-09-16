@@ -1,4 +1,4 @@
-# F-22 mutation -- the port advertised a dequeue the decode would discard
+# F-22 mutation: the port advertised a dequeue the decode would discard
 #
 #   git apply formal/tools/mutations/F-22.patch && formal/run.sh bram_tree_pipelined
 #
@@ -6,7 +6,7 @@
 #
 # WHY A PATCH AND NOT A REVERT: reverting the fixing commit conflicts; the line
 # was rewritten by later fixes. This re-gates o_read_ready on root_done while
-# the decode still needs sift_done -- the same mechanism exactly.
+# the decode still needs sift_done: the same mechanism exactly.
 diff --git a/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv b/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv
 index d2928c0..a51230a 100644
 --- a/hwpq/bram_tree_pipelined/src/bram_tree_pipelined.sv

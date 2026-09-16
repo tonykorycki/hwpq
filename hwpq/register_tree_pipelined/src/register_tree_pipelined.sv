@@ -1,13 +1,28 @@
 `default_nettype none
 
 /*******************************************************************************
-  register_tree_pipelined: register_tree with the compare-and-swap split across
-  clock cycles to shorten the combinational path; enqueue takes two cycles to
-  propagate a new entry into place.
-  Reserved payloads: '0 is the empty slot and dequeue sentinel; all-ones is the
-  max-priority placeholder an ENQ_ENA=0 build resets into. Neither is legal on
-  i_data in either build; the alphabet is 2**DATA_WIDTH - 2 everywhere.
-  QUEUE_SIZE must be 2^k - 1: it is also NODES_NEEDED, the full-tree node count.
+  Module Name: register_tree_pipelined
+  Description: A pipelined version of the register tree architecture that
+               divides the compare-and-swap logic between clock cycles to
+               reduce combinational path length, at the cost of enqueue
+               taking two cycles to propagate a new entry into place.
+  Parameters: ENQ_ENA - Enables the enqueue datapath when set
+              QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue/replace operation)
+          i_read - Read/pop command (dequeue/replace operation)
+          i_data - Input data to be enqueued (or used for replace)
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: QUEUE_SIZE must be 2^k - 1: it is also NODES_NEEDED, the
+               full-tree node count.
+               '0 is the empty slot and dequeue sentinel; all-ones is the
+               max-priority placeholder an ENQ_ENA=0 build resets into.
+               Neither is legal on i_data in either build, so the payload
+               alphabet is 2**DATA_WIDTH - 2 values everywhere.
 *******************************************************************************/
 
 module register_tree_pipelined #(

@@ -1,11 +1,6 @@
 `default_nettype none
 // bram_tree_pipelined shim for the shared testbench body (test/common/hwpq_tb_common.svh).
-//
-// bram_tree_pipelined uses the standard settle contract. It did not always: while
-// o_read_ready exposed root_done, which rises one walk earlier than sift_done,
-// OR-ing it into settled released the next command mid-sift and the DUT dropped
-// it, so this shim used `settled = o_write_ready` alone. o_read_ready is now
-// gated on sift_done in the RTL, so the shared form is correct here.
+
 module bram_tree_pipelined_tb;
   localparam int QUEUE_SIZE = 15;
   localparam int DATA_WIDTH = 16;
@@ -34,17 +29,10 @@ module bram_tree_pipelined_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  //
   // The top two levels of this design are registers rather than memory, so the
-  // interesting invariants are reachable without decoding the RAM. All three are
-  // transcribed verbatim from formal/spec/hwpq_bram_aux.sv, where they are
-  // proven, and all three are gated on sift_done exactly as the properties are --
-  // the walk is mid-flight otherwise, and a window that opens one cycle too
-  // early reads a heap that is not there yet.
-  //
-  // Nothing here is invented for simulation. The heap invariant over the deeper
-  // levels lives in the BRAM and is deliberately left out: it is not proven for
-  // this module, and an unproven interior check is how false findings get made.
+  // interesting invariants are reachable without decoding the RAM. All three
+  // are transcribed from formal/spec/hwpq_bram_aux.sv, where they are proven,
+  // and gated on sift_done: the walk is mid-flight otherwise.
   task automatic check_tree_invariants();
     if (u_dut.sift_done) begin
       // a_queue_size_bounded
@@ -57,7 +45,7 @@ module bram_tree_pipelined_tb;
       else begin error_count++; $error("Heap: root %d outranked by children {%d, %d}",
                                        u_dut.level_0, u_dut.level_1[0], u_dut.level_1[1]); end
 
-      // a_no_placeholder_at_capacity -- every placeholder has been evicted by the
+      // a_no_placeholder_at_capacity - every placeholder has been evicted by the
       // time the queue is full, so the root holds real data there.
       if (u_dut.queue_size == QUEUE_SIZE)
         assert (u_dut.level_0 !== '1)
@@ -65,33 +53,26 @@ module bram_tree_pipelined_tb;
     end
   endtask
 
-  // The heap invariant over the WHOLE tree, including the BRAM levels.
-  //
-  // NOT proven for this module, and that is precisely why it belongs here.
-  // Formal reaches this design only at QUEUE_SIZE=7 -- TREE_DEPTH=3, exactly one
-  // BRAM level, so a defect needing two levels is out of scope -- and 15 does
-  // not converge at all. It also runs at DATA_WIDTH=2, where ordering
-  // properties cannot distinguish degrees among three or more payloads. This
-  // testbench runs QUEUE_SIZE=15 and DATA_WIDTH=16: two BRAM levels and a real
-  // payload alphabet. That region is unreachable by proof by construction, so
-  // simulation is the only thing that can cover it.
+  // The heap invariant over the WHOLE tree, including the BRAM levels: not
+  // proven for this module, since formal only reaches QUEUE_SIZE=7 (one BRAM
+  // level) at DATA_WIDTH=2 (too few payloads to order). This testbench runs
+  // QUEUE_SIZE=15, DATA_WIDTH=16: two BRAM levels and a real payload alphabet,
+  // unreachable by proof, so simulation covers it instead.
   //
   // LAYOUT, read off the RTL. Levels 0 and 1 are registers (level_0, level_1[2]);
   // levels 2..TREE_DEPTH-1 are one rams_tdp_rf_rf per level in the gen_bram
-  // generate loop, each indexed by the node's index WITHIN its level. Children of
-  // (L, i) are (L+1, 2i) and (L+1, 2i+1) -- confirmed by next_addr_a[2] =
-  // 2*parent_idx at :324. The word is a bare value, no active flag: '1 is the
-  // max-priority placeholder and outranks everything, so it sits at the top and
-  // the invariant holds through the fill phase too.
+  // generate loop, each indexed by the node's index WITHIN its level. Children
+  // of (L, i) are (L+1, 2i) and (L+1, 2i+1), per next_addr_a[2] = 2*parent_idx.
+  // The word is a bare value, no active flag: '1 is the max-priority
+  // placeholder and outranks everything, so it sits at the top and the
+  // invariant holds through the fill phase too.
   //
   // A hierarchical reference into gen_bram[] needs a CONSTANT index, so the
   // levels are flattened into one array by a generate loop and the walk reads
   // the copy.
   //
-  // Gated on sift_done && !filling, matching the proven properties above.
-  // sift_done resets HIGH, so without !filling a window opens inside the
-  // reset sweep and reads a tree that is still being written; !filling is
-  // load-bearing here.
+  // Gated on sift_done && !filling. sift_done resets HIGH, so without !filling
+  // a window opens inside the reset sweep and reads a tree still being written.
   localparam int BTP_TREE_DEPTH = $clog2(QUEUE_SIZE + 1);
   localparam int BTP_MAX_LVL_N  = 1 << (BTP_TREE_DEPTH - 1);
 
@@ -126,34 +107,22 @@ module bram_tree_pipelined_tb;
   endtask
 
 
-  // X on the sift comparator inputs -- a tripwire on the deepest-level override.
+  // X on the sift comparator inputs: a tripwire on the deepest-level override,
+  // not a defect detector. The out-of-range child accesses this watches are
+  // provably benign: formal, this suite, and synthesis all agree that removing
+  // their guards changes nothing observable.
   //
-  // NOT a defect detector, and the distinction matters. The six out-of-range
-  // child accesses this watches for are provably benign: removing their guards
-  // leaves formal fully green, leaves this suite green with byte-identical
-  // cycle histograms, and synthesises smaller with identical sequential state.
-  // Nothing misbehaves, in simulation, in proof, or in silicon.
-  //
-  // What makes the X harmless is an override at the end of the sift arm, present
-  // since before the guards existed:
+  // What makes the X harmless is an override at the end of the sift arm:
   //
   //   if (parent_lvl == TREE_DEPTH - 1) begin
   //     next_parent_lvl = 'd0; next_parent_idx = 'd0;
   //     next_we_a[parent_lvl] = 1'b0; next_we_b[parent_lvl] = 1'b0;
   //
-  // It runs AFTER the X-poisoned branch logic and overwrites it, so every tainted
-  // path is either discarded or aimed at storage that does not exist. That
-  // override is doing all of the work, and nothing else in this repository
-  // watches it -- edit it and the X goes live with no other check reliably
-  // objecting. This monitor is a tripwire on that one structural dependency.
-  //
-  // Its whole value is that it discriminates, and the numbers are measured rather
-  // than argued: at QUEUE_SIZE=15 the walk spends 1452 cycles at the deepest
-  // level either way, and the count below is 0 with the guards and 2159 without
-  // them.
-  //
-  // Reported once. The condition holds for thousands of cycles once true, and the
-  // run must fail with a readable log rather than 2159 identical lines.
+  // It runs after the X-poisoned branch logic and overwrites it, so every
+  // tainted path is discarded or aimed at storage that does not exist. Nothing
+  // else in this repository watches that override, so edit it and the X goes
+  // live with no other check objecting. Reported once, since the condition
+  // holds for thousands of cycles once true.
   bit btp_x_reported = 0;
 
   always @(posedge i_CLK) begin
@@ -161,7 +130,7 @@ module bram_tree_pipelined_tb;
         ($isunknown(u_dut.comp_left_child_in) || $isunknown(u_dut.comp_right_child_in))) begin
       btp_x_reported = 1;
       error_count++;
-      $error("Sift: comparator child inputs are X {left=%h, right=%h} at parent_lvl=%0d -- the walk is comparing against undefined data",
+      $error("Sift: comparator child inputs are X {left=%h, right=%h} at parent_lvl=%0d: the walk is comparing against undefined data",
              u_dut.comp_left_child_in, u_dut.comp_right_child_in, u_dut.parent_lvl);
     end
   end

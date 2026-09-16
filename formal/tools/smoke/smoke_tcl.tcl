@@ -4,7 +4,7 @@
 #
 # What this does NOT validate: the real property-table filter syntax and status
 # spellings, which vary by release and can only be confirmed against the tool.
-# That is the backend's half of the contract -- see formal/backend/README.md.
+# That is the backend's half of the contract; see formal/backend/README.md.
 
 set repo [lindex $argv 0]
 
@@ -111,7 +111,7 @@ set all_ok [expr {$all_ok & [run_case "multiply-driven design rejected" 1 "
     $common"]}]
 
 # 9. the gate must not fire on a clean design, and must not swallow a real
-#    failure either -- an empty driver list with a cex still exits 1 for the cex.
+#    failure either: an empty driver list with a cex still exits 1 for the cex.
 set all_ok [expr {$all_ok & [run_case "clean drivers, real cex still fails" 1 "
     set STUB_MD {}
     set STUB_TABLE \[dict create \

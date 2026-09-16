@@ -15,7 +15,7 @@ ship with the repo:
 
 | backend  | needs a licence | what it is                                        |
 |----------|-----------------|---------------------------------------------------|
-| `stub`   | no              | fakes the table; drives `formal/smoke.sh`         |
+| `stub`   | no              | fakes the table; drives `formal/tools/smoke.sh`   |
 | `dryrun` | no              | prints the calls it would make, proves nothing    |
 
 A backend for a real tool is **not** committed: `.gitignore` excludes everything

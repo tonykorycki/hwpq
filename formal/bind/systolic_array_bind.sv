@@ -31,13 +31,13 @@
 // it pre-emptively, because a too-large MAX_SETTLE weakens both a_progress and
 // p_at_next_settle without any warning in the table.
 //
-// ASSUME_ENQ_WHEN_WREADY is GONE, and its absence is the point: o_write_ready
-// and the enqueue path are structurally coupled to the same threshold, so the
-// spec's "acceptance == the matching ready" decode is exact, and the proof
-// holds with no assumption about when the caller may write.
+// ASSUME_ENQ_WHEN_WREADY is left at its default of 0, deliberately:
+// o_write_ready and the enqueue path are structurally coupled to the same
+// threshold, so the spec's "acceptance == the matching ready" decode is exact
+// and the proof holds with no assumption about when the caller may write.
 //
-// systolic_array has no ENQ_ENA parameter at all - the enqueue datapath is
-// always present - so ENQ_ENA is passed as a literal 1 rather than forwarded.
+// systolic_array has no ENQ_ENA parameter, since the enqueue datapath is always
+// present, so ENQ_ENA is passed as a literal 1 rather than forwarded.
 bind systolic_array hwpq_spec #(
     .QUEUE_SIZE (QUEUE_SIZE),
     .DATA_WIDTH (DATA_WIDTH),
@@ -62,7 +62,7 @@ bind systolic_array hwpq_spec #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs. The tool
+// Reset harness: the elaboration top for this module's proofs. The tool
 // holds the declared reset inactive after init; declaring i_init_RSTn keeps
 // the DUT's i_RSTn free for mid-operation resets.
 //

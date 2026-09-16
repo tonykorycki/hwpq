@@ -5,7 +5,7 @@
 // formal tool ignores it on every run.
 //
 // Without an assumption the memory therefore starts ARBITRARY: arbitrary
-// `active` flags, arbitrary values, and -- worst of all for this module --
+// `active` flags, arbitrary values, and, worst of all for this module,
 // arbitrary `capacity` fields, which carry the free-space accounting the whole
 // design rests on. Ordering and occupancy properties then fail for reasons that
 // say nothing about the design.
@@ -74,9 +74,9 @@ module hwpq_bram_tree_aux #(
   c_fill_intact_reachable : cover property (@(posedge i_CLK) fill_intact);
 
   // ---------------------------------------------------------------------------
-  // THE RESET CONTRACT -- the property this module never had.
+  // The reset contract.
   //
-  // The power-up fill above pins the memory only at cycle 0, so a LATER reset
+  // The power-up fill above pins the memory only at cycle 0, so a later reset
   // leaves it free. That is deliberate: it is what makes this property able to
   // fail. The BRAM has no reset port and its `initial` fill is simulation-only,
   // so nothing restores the empty-tree contents. A reset arriving with data in
@@ -90,7 +90,7 @@ module hwpq_bram_tree_aux #(
   //   is useless as an acceptance test.
   //
   //   `idle && no command |-> fill_intact` is worse. It says the memory is empty
-  //   whenever the queue is idle -- which is FALSE for any correct design
+  //   whenever the queue is idle, which is FALSE for any correct design
   //   holding data, and fails immediately for exactly that reason: a populated
   //   queue, behaving correctly.
   //
@@ -100,46 +100,34 @@ module hwpq_bram_tree_aux #(
   // rewrites the memory cannot. Ask what PASSING would look like before keeping a
   // property that fails.
   //
-  // The first reset cannot expose the defect -- the memory is pinned at cycle 0,
+  // The first reset cannot expose the defect: the memory is pinned at cycle 0,
   // so the fill is trivially intact there. It takes a LATER reset, after data has
-  // been written, which is precisely what the cycle-0 scoping above leaves
-  // reachable. `disable iff (!i_RSTn)` is load-bearing: without it a reset
-  // arriving DURING the sweep restarts the fill, while the obligation from the
-  // first $rose still demands completion inside the original window, so the
-  // property would fail on a design whose sweep is correct. The guard aborts a
-  // pending obligation when a new reset lands, which is the standard idiom and
-  // what every property in hwpq_spec.sv already does.
+  // been written, which is what the cycle-0 scoping above leaves reachable.
+  // `disable iff (!i_RSTn)` is load-bearing: without it a reset arriving during
+  // the sweep restarts the fill while the obligation from the first $rose still
+  // demands completion inside the original window, failing a design whose sweep
+  // is correct. The guard aborts a pending obligation when a new reset lands.
   //
-  // WHAT PASSING LOOKS LIKE: the sweep writes one node per cycle for
-  // NODES_NEEDED cycles, so fill_intact holds by NODES_NEEDED+1 after the reset
-  // releases -- comfortably inside the window, with no reset interrupting.
+  // The sweep writes one node per cycle for NODES_NEEDED cycles, so fill_intact
+  // holds by NODES_NEEDED+1 after the reset releases, inside the window.
   a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       $rose(i_RSTn) |-> ##[1:NODES_NEEDED+2] fill_intact);
 
   // ---------------------------------------------------------------------------
-  // THE ROOT CAPACITY INVARIANT.
+  // Root capacity invariant.
   //
-  // Written to DECIDE a question rather than to record an answer. The replace
-  // arm computes `top_level.capacity + 1` on an empty queue, where capacity is
-  // QUEUE_SIZE and the field is ADDRESS_WIDTH bits -- 7 + 1 truncates to 0. The
-  // direction is also the dequeue arm's, where an element LEAVES and free space
-  // grows, whereas a replace on an empty queue INSERTS one. Both look wrong on
-  // inspection.
+  // `capacity` is a per-node count of free slots in the subtree rooted at that
+  // node. The root's subtree is the whole tree, so at idle its count equals total
+  // free space. This cross-checks the distributed ledger the enqueue descent
+  // maintains against the scalar queue_size counter, which a separate path
+  // maintains: two independent accountings of one quantity.
   //
-  // But inspection is not evidence, and the full spec proves green with that code
-  // in place, so the question is whether anything observable depends on it. The
-  // field is NOT dead: top_capacity seeds curr.capacity, which is written into
-  // din_*.capacity, stored, and read back as dout_*.capacity -- which gates every
-  // arm of the enqueue descent. So a corrupt value has a live path.
-  //
-  // WHAT PASSING LOOKS LIKE: when the design is idle, the root's free-space count
-  // is exactly the space that is free -- QUEUE_SIZE minus the number of elements
-  // held. Reset gives 7 == 7-0; an enqueue into an empty queue gives 6 == 7-1. A
-  // correct design maintains it at every idle point.
-  //
-  // If this FAILS, the replace-on-empty arithmetic is a real defect and gets the
-  // property/fix/retire treatment. If it PROVES, the code is merely odd and the
-  // fix should be dropped rather than carried on the strength of a code reading.
+  // The field is live, not dead: top_capacity seeds curr.capacity, which is
+  // written into din_*.capacity, stored, and read back as dout_*.capacity, which
+  // gates every arm of the enqueue descent. Nothing on the interface reads it, so
+  // a corrupt value is invisible to every black-box property and this assert is
+  // the only detector.
+  // ---------------------------------------------------------------------------
   a_root_capacity_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       fsm_idle |-> (top_capacity == ADDRESS_WIDTH'(QUEUE_SIZE - queue_size)));
 

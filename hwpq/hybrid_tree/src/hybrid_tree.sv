@@ -1,10 +1,23 @@
 /*******************************************************************************
-  hybrid_tree: register array holding the root nodes of multiple BRAM-based
-  trees. New items replace the leftmost register entry and propagate down the
-  corresponding BRAM tree, while the register array is kept sorted so each
-  entry is >= its right neighbor.
-  Does not compile under iverilog; excluded from the simulation suite and from
-  formal scope.
+  Module Name: hybrid_tree
+  Description: A hybrid priority queue (Max H-PQ) that combines a register
+               array holding the root nodes of multiple BRAM-based trees. New
+               items replace the leftmost register entry and propagate down
+               the corresponding BRAM tree, while the register array is kept
+               sorted so each entry is >= its right neighbor. Supports
+               enqueue, dequeue, and replace operations.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be inserted (or used for replace)
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: Does not compile under iverilog, so it is excluded from the
+               simulation suite and from formal scope.
 *******************************************************************************/
 
 module hybrid_tree #(

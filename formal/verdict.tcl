@@ -3,7 +3,6 @@
 # Sourced by formal/drive.tcl after the design is analyzed, elaborated, clocked
 # and reset. This file only knows how to prove, classify the result, and decide
 # pass/fail. Every tool-specific operation goes through the backend:: contract
-# in formal/backend/README.md, so nothing here names a vendor.
 #
 # CALLER CONTRACT:
 #   HWPQ_MODULE          module name, used in the verdict banner.        REQUIRED
@@ -43,7 +42,7 @@ proc hwpq_plist {type statuses} {
 #
 # Properties are reported as <task>::<module>.<inst>.<generate>.<name>, which is
 # DOT-separated. `file tail` splits on "/" and so returns the whole string
-# untouched -- an HWPQ_EXPECT_CEX entry could then never match anything.
+# untouched, so an HWPQ_EXPECT_CEX entry could then never match anything.
 proc hwpq_leaf {p} {
     return [lindex [split $p .] end]
 }
@@ -54,23 +53,12 @@ proc hwpq_leaf {p} {
 # two write ports touch different addresses and the non-blocking assignments
 # land on different elements, so nothing is ever observed to go wrong. In formal
 # it means the TOOL resolves the drivers, and what it resolves to is not what
-# the design computes. Writes stop being reliably observable -- a write to
-# address 0 need not be there on the next cycle -- and every memory-dependent
+# the design computes. Writes stop being reliably observable - a write to
+# address 0 need not be there on the next cycle - and every memory-dependent
 # property is then decided against contents the tool was free to invent.
 #
-# This is the costliest kind of false result the harness can produce: a
-# property decided against a memory model the tool was free to invent,
-# reported as though it says something about the design. Elaboration warnings
-# announce multiple-driver nets before any property runs; reading them first is
-# what catches this before wasted proof time.
-#
 # The gate runs BEFORE proving. A run against a resolved-driver model does not
-# produce a weaker result, it produces a meaningless one, so there is nothing to
-# spend proof time on and nothing to trade off -- which is also why there is
-# deliberately NO override switch. `bram_tree` still carries its own copy of the
-# defect (7 signals, 140 bits) and this gate will refuse the run until
-# hwpq/bram_tree/src/rams_tdp_rf_rf.sv is fixed. That is the intended
-# sequencing, not an obstacle to work around.
+# produce a usable result.
 proc hwpq_multiple_driven_gate {} {
     puts "\n=== multiple-driver check ======================================"
     if {[catch {set md [backend::design_info multiple_driven]} err]} {
@@ -95,7 +83,7 @@ proc hwpq_multiple_driven_gate {} {
     puts "    to see both drivers and the bit count. The usual cause is a vendor"
     puts "    RAM template with one always block per port; merging them into a"
     puts "    single process is sound wherever both ports share a clock."
-    puts "    See F-21 in formal/FINDINGS.md."
+    puts "    See F-21 in formal/docs/results.md."
     puts ""
     puts "    RESULT: FAIL"
     puts ""

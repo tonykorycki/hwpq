@@ -1,10 +1,24 @@
 /*******************************************************************************
-  bram_tree_pipelined: pipelined binary max-heap priority queue in block RAM,
-  with the top levels kept in registers. Trades throughput (one replace every
-  four cycles) for scalability over the non-pipelined bram_tree. Has no enqueue
-  path; boots physically full of all-ones placeholders while queue_size reports 0.
-  QUEUE_SIZE must be 2^k - 1, the full-tree node count.
-  Reserved payloads: '0 and all-ones are never valid on i_data.
+  Module Name: bram_tree_pipelined
+  Description: A pipelined priority queue implementation using a binary max-heap
+               structure stored in block RAM, with the top few levels
+               kept in registers. Supports enqueue, dequeue, and replace
+               operations, trading throughput (one replace every four cycles)
+               for improved scalability over the non-pipelined BRAM tree.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be inserted (or used for replace)
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: QUEUE_SIZE must be 2^k - 1, the full-tree node count.
+               '0 and all-ones are reserved payloads, never legal on i_data.
+               Reset leaves the queue physically full of all-ones placeholders
+               while queue_size reports 0, so the queue never advertises full.
 *******************************************************************************/
 
 module bram_tree_pipelined #(
@@ -305,7 +319,7 @@ module bram_tree_pipelined #(
         end else if (parent_lvl > 'd1) begin
           next_addr_a[parent_lvl]   = parent_idx;
           // The per-level arrays are [2:TREE_DEPTH-1], so [parent_lvl+1] is out
-          // of range at the deepest level -- where there are no children to
+          // of range at the deepest level, where there are no children to
           // address anyway. Simulation discarded these writes silently; the
           // guard says so.
           if (parent_lvl < TREE_DEPTH - 1) begin
@@ -493,11 +507,11 @@ module bram_tree_pipelined #(
 
   // Sift-down completion detector
   
-  //   root_done -- the root compare-swap has been written back, so level_0 now
+  //   root_done: the root compare-swap has been written back, so level_0 now
   //                holds the true maximum.  o_data is trustworthy from here,
   //                even though the walk may still be sifting deeper down.
 
-  //   sift_done -- the whole walk terminated.  Only now may a new command be
+  //   sift_done: the whole walk terminated.  Only now may a new command be
   //                accepted; one arriving earlier abandons the walk part-way
   //                down and leaves the heap broken.
   

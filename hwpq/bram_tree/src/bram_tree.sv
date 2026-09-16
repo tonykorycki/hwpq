@@ -1,8 +1,20 @@
 /*******************************************************************************
-  bram_tree: binary max-heap priority queue stored in block RAM. Supports
-  enqueue, dequeue, and replace.
-  QUEUE_SIZE must be 2^k - 1, the full-tree node count.
-  Reserved payloads: '0 and all-ones are never valid on i_data.
+  Module Name: bram_tree
+  Description: A priority queue implementation using a binary max-heap structure
+               stored in block RAM (BRAM). Supports enqueue, dequeue, and replace
+               operations.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be enqueued
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: QUEUE_SIZE must be 2^k - 1, the full-tree node count.
+               '0 and all-ones are reserved payloads, never legal on i_data.
 *******************************************************************************/
 
 module bram_tree #(

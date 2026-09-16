@@ -1,22 +1,19 @@
 `default_nettype none
-// white-box addendum for systolic_array: capacity and handshake agreement
+// White-box addendum for systolic_array: capacity and handshake agreement.
 //
-// Separate from hwpq_spec.sv for the usual reason - the shared spec reads only
-// the six interface ports, and this file reaches inside one module.
+// Kept separate from hwpq_spec.sv, which reads only the six interface ports;
+// this file reaches inside one module.
 //
-// WHAT THIS IS FOR
+// systolic_array has two notions of "no more room" that must agree:
 //
-// systolic_array has two notions of "no more room" and they have to agree:
+//   full          =  (size >= QUEUE_SIZE - 2)     what the enqueue path enforces
+//   o_write_ready = !full && (bubble term)        what the queue advertises
 //
-//   full          =  (size >= QUEUE_SIZE - 2)     what the enqueue path ENFORCES
-//   o_write_ready = !full && (bubble term)        what the queue ADVERTISES
-//
-// A separate threshold on either side -- o_write_ready one slot tighter than
-// `full`, say -- would let the queue advertise no room while still accepting
+// A separate threshold on either side, such as o_write_ready one slot tighter
+// than `full`, would let the queue advertise no room while still accepting
 // writes: a usable slot lost for a caller that honours the ready, and a window
-// that behaves differently for one that does not. The two are structurally
-// coupled -- o_write_ready is derived from `full` -- and these properties are
-// what guards that invariant.
+// that behaves differently for one that does not. o_write_ready is derived from
+// `full`, and these properties are what guard that coupling.
 
 module hwpq_systolic_aux #(
     parameter int QUEUE_SIZE = 8
@@ -35,11 +32,10 @@ module hwpq_systolic_aux #(
   wire settled     = o_write_ready || o_read_ready;
   wire cmd_enqueue = i_wrt && !i_read;
 
-  // THE INVARIANT: while quiescent, what the queue advertises is exactly what it
-  // will accept. `settled` is what rules out the other reason o_write_ready
-  // drops - a MIN_VALUE bubble at the head, which is a busy state and not a
-  // capacity limit. Re-introducing a separate threshold on either side breaks
-  // this immediately.
+  // While quiescent, what the queue advertises is exactly what it will accept.
+  // `settled` rules out the other reason o_write_ready drops: a MIN_VALUE bubble
+  // at the head, which is a busy state rather than a capacity limit. A separate
+  // threshold on either side breaks this immediately.
   a_ready_matches_accept : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled |-> (o_write_ready == !full));
 

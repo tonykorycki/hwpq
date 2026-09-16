@@ -304,7 +304,7 @@ module hwpq_spec #(
 
   // Deliberately undriven, so the tool is free to pick any value and must make
   // the properties hold for all of them. An undriven net plus a stability
-  // assume, not $anyconst -- not every SVA parser accepts that construct, and
+  // assume, not $anyconst: not every SVA parser accepts that construct, and
   // this spec has to stay portable.
 
   // verilator lint_off UNDRIVEN

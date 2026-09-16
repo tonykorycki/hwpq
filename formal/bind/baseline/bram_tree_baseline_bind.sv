@@ -1,35 +1,22 @@
-// Attaches hwpq_spec to bram_tree
+// Attaches hwpq_spec to the baseline bram_tree.
 //
-// Port-map explicitly rather than `.*`, and pass every parameter explicitly.
+// Port-map and parameters are written out explicitly rather than with `.*`.
 //
-// This module is the OPPOSITE of bram_tree_pipelined on two of the three
-// questions, so nothing here should be copied from that bind by reflex:
+// ENQ_ENA=1: the enqueue datapath is present, so both command forms are live.
+// HAS_FULL=1: o_write_ready carries (queue_size != QUEUE_SIZE), so !o_write_ready
+// means full rather than busy.
+// HAS_BUSY=1: both readies are ANDed with a quiescence term, so they drop
+// together while the sift walk runs.
 //
-//   ENQ_ENA=1. bram_tree HAS an enqueue datapath, so both command forms are
-//   live. The pipelined module is replace-only.
+// MAX_SETTLE=8 is hand-derived, not read from the design: no localparam holds it,
+// so it does not track QUEUE_SIZE. The walk costs roughly two cycles per level
+// plus accept and return (2*TREE_DEPTH+2 = 8 at QUEUE_SIZE=7). Re-derive it when
+// the walk structure or QUEUE_SIZE changes.
 //
-//   HAS_FULL=1. o_write_ready is (queue_size != QUEUE_SIZE) && ...
-//   (bram_tree.sv:559), so !o_write_ready genuinely does mean full. The
-//   pipelined module never advertises full at all.
-//
-//   HAS_BUSY=1 is the one they share: both readies are ANDed with a quiescence
-//   term, so they drop together while the sift walk runs.
-//
-// MAX_SETTLE=8: TRANSCRIBED, not read from the design -- no localparam holds it,
-// so unlike register_tree's SETTLE_MAX it cannot track QUEUE_SIZE if the walk
-// changes. The structure is roughly two cycles per level plus accept and
-// return, i.e. 2*TREE_DEPTH+2 = 8 at QUEUE_SIZE=7, and simulation measures a
-// maximum op latency of 7 at that size (replace) and 7 at QUEUE_SIZE=15.
-// Re-derive it once the run gets past the multiple-driver gate; it is a guess
-// until a_progress has actually judged it.
-//
-// KNOWN: this bind is expected to produce a VACUOUS run once it elaborates,
-// because o_write_ready and o_read_ready are ANDed with !(i_read || i_wrt)
-// (bram_tree.sv:558). Fed to am_no_cmd_while_busy that reads "if a command is
-// issued then no command is issued", so the tool issues none and every assert
-// proves for free. The command covers are what detect it. That is the point of
-// running this before touching the readies -- the vacuity gets demonstrated
-// rather than asserted in prose.
+// Trap: at this baseline the readies are ANDed with !(i_read || i_wrt), so
+// am_no_cmd_while_busy reduces to "if a command is issued then no command is
+// issued". Every assert then proves for free and the run is vacuous. The command
+// covers are the only detector, so read them before reading the assert table.
 bind bram_tree hwpq_spec #(
     .QUEUE_SIZE (QUEUE_SIZE),
     .DATA_WIDTH (DATA_WIDTH),
@@ -55,27 +42,22 @@ bind bram_tree hwpq_spec #(
 );
 
 
-// The white-box addendum binds to the HARNESS, not to the DUT: it needs
-// i_init_RSTn to tell the first reset from a later one, and that only exists one
-// level up. The node memory arrives by hierarchical reference.
-// ---------------------------------------------------------------------------
-// BASELINE VARIANT -- black-box spec only, NO white-box addendum.
-// ---------------------------------------------------------------------------
-// The aux bind is omitted: it reaches for `fsm_idle` and `filling`, signals a
-// later fix created. Against pre-fix RTL the elaboration fails and nothing
-// elaborates. Baseline measurement of this module is BLACK-BOX ONLY; white-box
-// rows must be marked unavailable, never inferred -- a defect caught by exactly
-// one white-box property is invisible to this table by construction.
-
-
-// Reset harness -- the elaboration top for this module's proofs. The tool
-// holds the declared reset inactive after init; declaring i_init_RSTn keeps
-// the DUT's i_RSTn free for mid-operation resets.
+// Baseline variant: black-box spec only, with no white-box addendum.
 //
-// It matters more here than on any module so far: bram_tree's per-node capacity
-// fields live in the RAM, the RAM has no reset port, and its `initial` fill is
-// simulation-only -- so the reset defect this harness makes reachable is the one
-// that carries the whole free-space accounting.
+// The aux bind is omitted because it reaches for `fsm_idle` and `filling`, which
+// this RTL does not declare, so binding it stops the run at elaboration.
+// Baseline measurement of this module is therefore black-box only: mark
+// white-box rows unavailable rather than inferring them, since a defect caught
+// by exactly one white-box property cannot appear in this table at all.
+
+
+// Reset harness: the elaboration top for this module's proofs. The tool holds
+// the declared reset inactive after init; declaring i_init_RSTn keeps the DUT's
+// i_RSTn free for mid-operation resets.
+//
+// The per-node capacity fields live in the RAM, which has no reset port and whose
+// `initial` fill is simulation-only. Mid-operation reset therefore leaves the
+// free-space accounting untouched, which is what this harness makes reachable.
 module hwpq_rst_bram_tree #(
     parameter int QUEUE_SIZE = 7,
     parameter int DATA_WIDTH = 3

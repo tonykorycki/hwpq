@@ -1,4 +1,4 @@
-# F-1c mutation -- a replace-only queue advertises data it cannot deliver (F-1 containment)
+# F-1c mutation: a replace-only queue advertises data it cannot deliver (F-1 containment)
 #
 #   git apply formal/tools/mutations/F-1c.patch && formal/run.sh register_array_enq0
 #

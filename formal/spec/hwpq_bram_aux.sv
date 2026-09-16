@@ -5,9 +5,9 @@
 // here, all of them below the port list:
 //
 //   1. The BRAM contents at power-up. A formal tool ignores the `initial` block
-//      in rams_tdp_rf_rf.sv, so the memories start ARBITRARY and every ordering
+//      in rams_tdp_rf_rf.sv, so the memories start arbitrary and every ordering
 //      property would fail for reasons that say nothing about the design. The
-//      all-ones fill is assumed for cycle 0 ONLY, in the proof driver -- see the
+//      all-ones fill is assumed for cycle 0 only, in the proof driver; see the
 //      power-up fill note below for why it cannot live here.
 //
 //   2. Whether a later reset restores that fill. It does not: bram_seq resets
@@ -88,12 +88,12 @@ module hwpq_bram_aux #(
   //
   //     am_initial_fill : assume property (!i_init_RSTn |-> fill_intact);
   //
-  // is VACUOUS: the tool's initial state is already post-reset, so
+  // is vacuous: the tool's initial state is already post-reset, so
   // !i_init_RSTn is never true at an observed posedge and the assumption's
   // precondition comes back UNREACHABLE. The memories stay free and every
   // downstream property fails for reasons that say nothing about the design.
   // Pinning cycle 0 and nothing after it is exactly the "first reset only"
-  // scoping this needs -- a later reset stays free to expose that nothing
+  // scoping this needs: a later reset stays free to expose that nothing
   // restores the fill.
 
   // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ module hwpq_bram_aux #(
   // ---------------------------------------------------------------------------
   //
   // bram_seq resets parent_lvl, parent_idx, level_0, level_1 and every BRAM port
-  // register -- but not the BRAM contents. Nothing rewrote them, so a reset
+  // register, but not the BRAM contents. Nothing rewrote them, so a reset
   // asserted while the queue held data left the memory holding stale nodes while
   // queue_size reported 0. Fixed by the reset fill sequencer (`filling`).
   //
@@ -110,7 +110,7 @@ module hwpq_bram_aux #(
   //     a_reset_restores_fill : !i_RSTn |=> fill_intact;
   //
   // which would demand the whole memory read all-ones ONE cycle after reset
-  // asserts -- a single-cycle bulk clear that no BRAM can do. The achievable
+  // asserts: a single-cycle bulk clear that no BRAM can do. The achievable
   // contract is that the sweep has finished before the module will take a
   // command, which is what these two say together.
   a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
@@ -133,7 +133,7 @@ module hwpq_bram_aux #(
   //     (state == ST_READ_MEM) && (parent_lvl > 1) |-> parent_lvl < TREE_DEPTH-1
   //
   // but that asks whether the deepest level is ever reached, which it
-  // legitimately is on every walk that sifts to the bottom -- so it fails
+  // legitimately is on every walk that sifts to the bottom, so it fails
   // whether or not the accesses are guarded, and says nothing either way. A
   // reachability assert is not a bounds check.
   //
@@ -144,7 +144,7 @@ module hwpq_bram_aux #(
       (state == ST_COMPARE_SWAP) && (parent_lvl == TREE_DEPTH - 1));
 
   // level_1 is two entries; parent_idx is three bits wide. This one IS a real
-  // bound question -- nothing structural stops parent_idx exceeding 1 -- and it
+  // bound question (nothing structural stops parent_idx exceeding 1), and it
   // proves.
   a_level1_index_in_range : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       (parent_lvl == 1) |-> parent_idx < 2);
@@ -154,14 +154,14 @@ module hwpq_bram_aux #(
   // ---------------------------------------------------------------------------
   //
   // The module has no enqueue datapath at all, and no command it accepts has
-  // fullness as a precondition -- a replace on a populated queue is size-neutral.
+  // fullness as a precondition: a replace on a populated queue is size-neutral.
   // So o_write_ready is a QUIESCENCE signal wearing a capacity signal's name,
   // forced to exist by the shared six-port interface. The spec binds with
   // HAS_FULL=0 for exactly this reason; stating it here is what stops that
   // parameter from being an unexamined inheritance.
   //
   // The right-hand side gained `&& !filling` with the reset fix: the port now
-  // means quiescent AND initialised. Both terms belong in it -- the design decodes
+  // means quiescent AND initialised. Both terms belong in it: the design decodes
   // commands off exactly this expression, so writing the property against anything
   // narrower would reopen the ready/accept gap.
   a_wready_is_quiescence : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
@@ -176,7 +176,7 @@ module hwpq_bram_aux #(
   // demonstrating, so they are recovered here against queue_size directly rather
   // than against a fullness the port never advertises.
   // These replace c_reaches_full and c_deq_from_full, which g_full_covers drops
-  // because HAS_FULL=0 -- but deliberately NOT at full depth.
+  // because HAS_FULL=0, but deliberately NOT at full depth.
   //
   // The natural form, "sift_done && queue_size == QUEUE_SIZE", needs seven
   // replaces at up to fourteen cycles each: roughly a hundred cycles of bounded
@@ -191,8 +191,8 @@ module hwpq_bram_aux #(
   c_occupancy_grows : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 1));
 
-  // The window is 20, not 6. A dequeue on this module takes 6 to 18 cycles
-  // (simulation measures min 6, mean 9.5, max 18), so 6 cannot span one.
+  // The window is 20, not 6: a dequeue on this module can take up to 18
+  // cycles, so 6 cannot span one.
   c_occupancy_shrinks : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done && (queue_size > 1) ##[1:20] (sift_done && (queue_size == 1)));
 
@@ -210,14 +210,12 @@ module hwpq_bram_aux #(
   // either one cause or six, and the spec cannot tell which, because everything it
   // knows comes through the same six ports.
   //
-  // The precedent: four spec asserts failed on systolic_array and the cause
-  // turned out to be the SPEC undercounting, not the design misbehaving. The way
-  // that was settled was to state the same claims white-box, against the design's
-  // own signals, and see which version survives.
+  // Stating the same claims white-box, against the design's own signals,
+  // decides which side is wrong: the model or the design.
 
   // Occupancy, asked of the design's own counter rather than of the spec's model.
   // If this proves while a_occ_bounded fails, the spec is miscounting this
-  // module's replaces -- the prime suspect being the o_data == '1 eviction arm
+  // module's replaces, the prime suspect being the o_data == '1 eviction arm
   // (:420), which has no full guard and which the spec scores as an insert every
   // time a placeholder reaches the root.
   a_queue_size_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
@@ -230,7 +228,7 @@ module hwpq_bram_aux #(
   a_root_outranks_children : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       sift_done |-> (level_0 >= level_1[0]) && (level_0 >= level_1[1]));
 
-  // A placeholder at the root is the ORDINARY fill mechanism -- all-ones is the
+  // A placeholder at the root is the ORDINARY fill mechanism: all-ones is the
   // maximum, so it floats to the root and each replace evicts one. This cover
   // therefore fires on every normal fill and proves nothing on its own. It is kept
   // only as the baseline for the one below it.
@@ -244,7 +242,7 @@ module hwpq_bram_aux #(
       sift_done && (queue_size == QUEUE_SIZE) |-> level_0 != '1);
 
   // ---------------------------------------------------------------------------
-  // Conservation -- which side of the disagreement is wrong
+  // Conservation: which side of the disagreement is wrong
   // ---------------------------------------------------------------------------
   //
   // c_placeholder_at_capacity is reachable and a_queue_size_bounded proves, so the
@@ -253,8 +251,8 @@ module hwpq_bram_aux #(
   // the sift network duplicates or drops a node, or the counter moves when the
   // contents do not. These two properties decide it by direction.
   //
-  // Both sentinels mark a free slot -- '1 is the reset placeholder and '0 is what
-  // DEQUEUE writes into the root (:410) -- and neither is a legal payload
+  // Both sentinels mark a free slot ('1 is the reset placeholder and '0 is what
+  // DEQUEUE writes into the root at :410), and neither is a legal payload
   // (am_payload_legal), so the node count holding real data is exactly QUEUE_SIZE
   // minus the free ones. At TREE_DEPTH=3 the tree is level_0, level_1[0..1] and
   // four level-2 nodes.
@@ -273,7 +271,7 @@ module hwpq_bram_aux #(
   // SAMPLING POINT. Not sift_done, which is a cycle too early to read the tree.
   // addr/din/we are registered from their next_* forms (:264-268), so a level-2
   // write reaches the memory two cycles after WRITE_MEM, while level_0 and
-  // level_1 land after one -- and sift_done, registered the same way, rises in
+  // level_1 land after one, and sift_done, registered the same way, rises in
   // between. Sampled on sift_done alone both properties below fail in BOTH
   // directions at 13 and 15 cycles, which is the register/memory skew and not a
   // defect. Three consecutive quiet cycles put every write in the memory.
@@ -290,11 +288,11 @@ module hwpq_bram_aux #(
     end
   end
   // `&& !filling` is load-bearing. sift_done RESETS HIGH, so without it the window
-  // opens two cycles after reset -- in the middle of the placeholder sweep, when
+  // opens two cycles after reset, in the middle of the placeholder sweep, when
   // the memory is half written and counting the tree is meaningless. With the
   // memory contents powering up arbitrary by design, `occupied` at cycle 0 is
   // whatever the tool picked; both conservation properties would fail at a depth
-  // of ONE cycle on that, which is the tell -- a real conservation defect needs
+  // of ONE cycle on that, which is the tell: a real conservation defect needs
   // commands to have happened.
   wire quiesced = sift_done && sift_done_d1 && sift_done_d2 && !filling;
 
@@ -311,7 +309,7 @@ module hwpq_bram_aux #(
   // the shape a_size_not_understated would catch if it were true.
   //
   // It is not: c_replace_over_zero is reachable, so a replace really does evict a
-  // '0, and the increment fires anyway -- the `queue_size == 0` arm covers the
+  // '0, and the increment fires anyway: the `queue_size == 0` arm covers the
   // case that matters. Kept as a proven invariant so the next reader does not
   // re-derive the same wrong idea.
   c_replace_over_zero : cover property (@(posedge i_CLK) disable iff (!i_RSTn)
@@ -327,7 +325,7 @@ module hwpq_bram_aux #(
       quiesced |-> queue_size <= occupied);
 
   // Nothing moves in the tree without a command to justify it. Written to bisect
-  // a_size_not_understated -- if the contents could change while quiescent with no
+  // a_size_not_understated: if the contents could change while quiescent with no
   // command accepted, the walk's write-back was at fault rather than the counter --
   // and kept because it is the stronger statement of the two: it holds per-cycle,
   // where conservation only relates two aggregates.

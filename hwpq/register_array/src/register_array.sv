@@ -1,12 +1,27 @@
 `default_nettype none
 
 /*******************************************************************************
-  register_array: flat-array priority queue. Replace overwrites the leftmost
-  entry, then two phases of compare-and-swap (even-indexed, then odd-indexed
-  pairs) restore order.
-  Reserved payloads: '0 is the empty slot and dequeue sentinel; all-ones is the
-  max-priority placeholder an ENQ_ENA=0 build resets into. Neither is legal on
-  i_data in either build; the alphabet is 2**DATA_WIDTH - 2 everywhere.
+  Module Name: register_array
+  Description: A priority queue implementation that stores elements in a flat
+               register array rather than a hierarchical heap. A replace
+               operation overwrites the leftmost entry with the new item,
+               followed by two phases of array-wide compare-and-swap (even-
+               indexed then odd-indexed neighbor pairs) to restore order.
+  Parameters: ENQ_ENA - Enables the enqueue datapath when set
+              QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue/replace operation)
+          i_read - Read/pop command (dequeue/replace operation)
+          i_data - Input data to be enqueued (or used for replace)
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: '0 is the empty slot and dequeue sentinel; all-ones is the
+               max-priority placeholder an ENQ_ENA=0 build resets into.
+               Neither is legal on i_data in either build, so the payload
+               alphabet is 2**DATA_WIDTH - 2 values everywhere.
 *******************************************************************************/
 
 module register_array #(

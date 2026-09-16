@@ -33,7 +33,7 @@ module rams_tdp_rf_rf #(
   // array multiply driven. Simulation is unaffected, because the two ports write
   // different addresses and the non-blocking assignments land on different
   // elements, but a formal tool has to resolve the drivers instead and writes
-  // become unreliably observable in the array -- a write to address 0 need not be
+  // become unreliably observable in the array: a write to address 0 need not be
   // there on the next cycle, and every memory-dependent property is proved against
   // that.
   //

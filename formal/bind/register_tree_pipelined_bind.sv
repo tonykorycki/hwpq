@@ -53,7 +53,7 @@ bind register_tree_pipelined hwpq_tree_aux #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs. The tool
+// Reset harness: the elaboration top for this module's proofs. The tool
 // holds the declared reset inactive after init; declaring i_init_RSTn keeps
 // the DUT's i_RSTn free for mid-operation resets.
 //

@@ -1,6 +1,6 @@
 # F-1c mutation -- a replace-only queue advertises data it cannot deliver (F-1 containment)
 #
-#   git apply formal/mutations/F-1c.patch && formal/run.sh register_array_enq0
+#   git apply formal/tools/mutations/F-1c.patch && formal/run.sh register_array_enq0
 #
 # Expect: 1 cex on a_head_not_placeholder (8 proven/1 cex)
 #

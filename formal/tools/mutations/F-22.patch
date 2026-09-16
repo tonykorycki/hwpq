@@ -1,6 +1,6 @@
 # F-22 mutation -- the port advertised a dequeue the decode would discard
 #
-#   git apply formal/mutations/F-22.patch && formal/run.sh bram_tree_pipelined
+#   git apply formal/tools/mutations/F-22.patch && formal/run.sh bram_tree_pipelined
 #
 # Expect: 5 cex incl a_read_ready_is_acceptable (15 proven/5 cex)
 #

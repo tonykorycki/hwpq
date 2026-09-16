@@ -1,6 +1,6 @@
 # Exercises formal/verdict.tcl's decisions against the licence-free `stub`
 # backend, so the pass/fail/exit-code logic is validated anywhere. Invoked by
-# formal/smoke.sh.
+# formal/tools/smoke.sh.
 #
 # What this does NOT validate: the real property-table filter syntax and status
 # spellings, which vary by release and can only be confirmed against the tool.

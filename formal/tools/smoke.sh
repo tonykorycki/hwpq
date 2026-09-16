@@ -20,7 +20,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+REPO_ROOT="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 cd "${REPO_ROOT}"
 
 WORK="${TMPDIR:-/tmp}/hwpq_smoke.$$"
@@ -30,7 +30,7 @@ trap 'rm -rf "${WORK}"' EXIT
 RTL="hwpq/register_array/src/register_array.sv"
 SPEC="formal/spec/hwpq_spec.sv"
 BIND="formal/bind/register_array_bind.sv"
-TB="formal/smoke/hwpq_smoke_tb.sv"
+TB="${SCRIPT_DIR}/smoke/hwpq_smoke_tb.sv"
 
 pass=0; fail=0
 ok()   { echo "  PASS  $1"; pass=$((pass+1)); }

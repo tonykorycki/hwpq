@@ -25,20 +25,16 @@
 # BASELINE is the last commit before the first formal-driven RTL fix. Every
 # module already carries the uniform six-port interface.
 #
-# HONESTY CAVEAT, to be repeated in the write-up: this is NOT "the design as
-# originally written". The modules once exposed o_full/o_empty -- different
-# signals, different paths -- before the uniform interface arrived, which is the
-# formal effort's OWN work. The claim this table supports is "the design as it
-# stood when verification began, once a common interface existed".
+# HONESTY CAVEAT: this is NOT "the design as originally written". 
+# The modules once exposed o_full/o_empty before the uniform interface arrived
+# which is the formal effort's own work. The claim this table supports is "the design 
+# as it stood when verification began, once a common interface existed".
 #
 # enabling: comma-separated commits, IN CHERRY-PICK ORDER. "-" means none.
 # whitebox: whether the aux addenda can bind at baseline at all. BLACK-BOX ONLY IS
-#   A DELIBERATE SCOPE DECISION for this table, not a shortfall -- the white-box
-#   results belong to the full findings write-up. Where the aux happens to bind
+#   A DELIBERATE SCOPE DECISION for this table. Where the aux happens to bind
 #   (the register family) it is included because it costs nothing; where it cannot
-#   (the BRAM modules, whose aux watches signals the fixes created) the row simply
-#   says so. Do not read a clean black-box row as "the module was sound": a
-#   defect can be caught by exactly one property, and it can be white-box.
+#   (the BRAM modules, whose aux watches signals the fixes created) the row says so.
 #
 # ENABLING COMMITS come in three kinds, and the write-up should distinguish them:
 #   infrastructure  - parameterisation so the proof can be sized
@@ -56,7 +52,7 @@
 # instead of growing a second slightly-different copy of them.
 #
 # ref (field 5) MEANS SOMETHING DIFFERENT PER MANIFEST, and this is the one place
-# the two modes genuinely diverge:
+# the two modes diverge:
 #   SWEEP    the commit the worktree is CHECKED OUT at   (the design moved)
 #   BASELINE the commit formal/ is OVERLAID from         (the instrument moved)
 # In baseline mode the checkout is ALWAYS pinned to the baseline commit in field 3.

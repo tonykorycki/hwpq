@@ -1,6 +1,6 @@
 # F-25 regression mutation -- reset never restored the placeholder fill
 #
-#   git apply formal/mutations/F-25.patch
+#   git apply formal/tools/mutations/F-25.patch
 #   formal/run.sh bram_tree_pipelined
 #
 # Expect: FAIL, 17 proven / 3 cex --

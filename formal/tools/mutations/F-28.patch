@@ -1,6 +1,6 @@
 # F-28 mutation -- the readies depended on the request, so the whole proof went vacuous
 #
-#   git apply formal/mutations/F-28.patch && formal/run.sh bram_tree
+#   git apply formal/tools/mutations/F-28.patch && formal/run.sh bram_tree
 #
 # Expect: 11 proven, 0 cex, but 13 UNREACHABLE covers. NO assert fires -- the cover set is the only detector.
 #

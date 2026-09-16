@@ -2,10 +2,10 @@
 #
 # Mutation regression driver: does the suite still catch each fix's defect?
 #
-#   formal/regress.sh <finding>          one row, keyed by SWEEP.tsv (see --list)
-#   formal/regress.sh --all              every row in mutations/SWEEP.tsv
-#   formal/regress.sh --list             show the manifest
-#   formal/regress.sh --replay ...       build each worktree from the HEAD each
+#   formal/tools/regress.sh <finding>    one row, keyed by SWEEP.tsv (see --list)
+#   formal/tools/regress.sh --all        every row in mutations/SWEEP.tsv
+#   formal/tools/regress.sh --list       show the manifest
+#   formal/tools/regress.sh --replay ... build each worktree from the HEAD each
 #                                        row was RECORDED at, not current HEAD
 #
 # For each row: detached worktree, reintroduce the defect (git revert, or
@@ -23,7 +23,7 @@
 #
 #      NOTE ON THE WORD: this is the CONTROL run, not the "baseline". In this
 #      project `baseline` means the pre-verification RTL -- see
-#      formal/baseline/MANIFEST.tsv, which is a different measurement entirely.
+#      formal/tools/baseline/MANIFEST.tsv, which is a different measurement entirely.
 #
 # TWO MANIFEST COLUMNS THIS SCRIPT ACTS ON:
 #
@@ -35,7 +35,7 @@
 #             cannot say which it answered.
 #
 #   head      the HEAD each row's outcome was MEASURED at. NOT the "baseline" --
-#             that word is taken: formal/baseline/MANIFEST.tsv records the
+#             that word is taken: formal/tools/baseline/MANIFEST.tsv records the
 #             pre-verification RTL, a different measurement.
 #
 #             The sweep runs at current HEAD by design: "does the suite STILL
@@ -53,14 +53,14 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+REPO_ROOT="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 MANIFEST="${SCRIPT_DIR}/mutations/SWEEP.tsv"
 cd "${REPO_ROOT}"
 
 # Every row runs in a fresh worktree, and a real tool's backend is never
 # committed, so no worktree contains one. Point every row back at the backend in
 # THIS checkout, unless FORMAL_BACKEND_DIR already says otherwise.
-export FORMAL_BACKEND_DIR="${FORMAL_BACKEND_DIR:-${SCRIPT_DIR}/backend}"
+export FORMAL_BACKEND_DIR="${FORMAL_BACKEND_DIR:-${REPO_ROOT}/formal/backend}"
 
 [ -f "${MANIFEST}" ] || { echo "no manifest at ${MANIFEST}" >&2; exit 2; }
 
@@ -168,8 +168,8 @@ check_control() {
   git worktree remove --force "$wt" >/dev/null 2>&1
   # Kept for the same reason as each row's log: "control not clean" with nothing
   # left to read is a verdict whose evidence was destroyed.
-  mkdir -p "${SCRIPT_DIR}/fv_proj/regress"
-  printf '%s\n' "$out" > "${SCRIPT_DIR}/fv_proj/regress/control-${mod//\//_}.log"
+  mkdir -p "${REPO_ROOT}/formal/fv_proj/regress"
+  printf '%s\n' "$out" > "${REPO_ROOT}/formal/fv_proj/regress/control-${mod//\//_}.log"
   grep -qE '^[[:space:]]*RESULT: PASS' <<<"$out"
 }
 
@@ -273,8 +273,8 @@ run_row() {
   # justifies it -- and a reproduction ledger whose own results are uncheckable
   # is the thing this effort exists to avoid. One log per row, overwritten each
   # sweep, beside the ordinary run artifacts.
-  mkdir -p "${SCRIPT_DIR}/fv_proj/regress"
-  printf '%s\n' "$out" > "${SCRIPT_DIR}/fv_proj/regress/${finding}.log"
+  mkdir -p "${REPO_ROOT}/formal/fv_proj/regress"
+  printf '%s\n' "$out" > "${REPO_ROOT}/formal/fv_proj/regress/${finding}.log"
   verdict="$(sed -n '/verdict =====/,/RESULT:/p' <<<"$out")"
 
   case "$expect" in

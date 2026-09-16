@@ -7,7 +7,7 @@
 # nothing predicted.
 #
 # "Baseline" is NOT this. In this project it means the pre-verification RTL --
-# see formal/baseline/MANIFEST.tsv, a different measurement with a different
+# see formal/tools/baseline/MANIFEST.tsv, a different measurement with a different
 # question. Nothing in this file uses the word.
 #
 # class   rtl | harness   WHAT is being mutated.

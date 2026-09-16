@@ -2,7 +2,7 @@
 //
 // Purpose: prove that hwpq_spec.sv COMPILES, BINDS, and has the right POLARITY
 // 
-// Driven by formal/smoke.sh. Not part of the simulation regression in test/.
+// Driven by formal/tools/smoke.sh. Not part of the simulation regression in test/.
 `timescale 1ns/1ps
 module hwpq_smoke_tb;
 

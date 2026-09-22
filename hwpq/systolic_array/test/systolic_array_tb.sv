@@ -9,7 +9,7 @@ module systolic_array_tb;
   localparam bit ENQ_ENA    = 1;
 
   // `full` is (size >= QUEUE_SIZE - 2): two slots are reserved as shift-chain
-  // margin and one is provably not enough (F-9). The readies-vs-model check
+  // margin and one is provably not enough. The readies-vs-model check
   // needs the real number, not QUEUE_SIZE.
   `define TB_CAPACITY (QUEUE_SIZE - 2)
 

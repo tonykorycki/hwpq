@@ -6,13 +6,13 @@
                operations.
   Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
               DATA_WIDTH - Bit width of data elements
-  Inputs: CLK - System clock
-          RSTn - Active-low reset signal
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
           i_wrt - Write/insert command (enqueue operation)
           i_read - Read/pop command (dequeue operation)
           i_data - Input data to be enqueued
-  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
-           o_empty - High when the queue is empty
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
            o_data - Output data from the highest priority element
 *******************************************************************************/
 
@@ -41,15 +41,15 @@ module bram_tree #(
 		parameter integer QUEUE_SIZE = bram_tree_pkg::QUEUE_SIZE,
     parameter integer DATA_WIDTH = bram_tree_pkg::DATA_WIDTH
 )(
-    input  logic                  CLK,
-    input  logic                  RSTn,
+    input  logic                  i_CLK,
+    input  logic                  i_RSTn,
     // Inputs
     input  logic                  i_wrt,    // Write/insert command
     input  logic                  i_read,   // Read/pop command
     input  logic [DATA_WIDTH-1:0] i_data,   // Input data
     // Outputs
-    output logic                  o_full,   // High if the heap is full
-    output logic                  o_empty,  // High if the heap is empty
+    output logic                  o_write_ready,   // High if the queue can accept a write
+    output logic                  o_read_ready,  // High if the queue has data to read
     output logic [DATA_WIDTH-1:0] o_data    // Output data (Root node)
 );
 
@@ -110,12 +110,12 @@ module bram_tree #(
   logic [DATA_WIDTH-1:0] second_greatest, next_second_greatest;
 
   rams_tdp_rf_rf bram_inst (
-    .clka (CLK), .ena(1'b1), .wea(we_a), .addra(addr_a), .dia(din_a), .doa(dout_a),
-    .clkb (CLK), .enb(1'b1), .web(we_b), .addrb(addr_b), .dib(din_b), .dob(dout_b)
+    .clka (i_CLK), .ena(1'b1), .wea(we_a), .addra(addr_a), .dia(din_a), .doa(dout_a),
+    .clkb (i_CLK), .enb(1'b1), .web(we_b), .addrb(addr_b), .dib(din_b), .dob(dout_b)
   );
 
-  always_ff @(posedge CLK or negedge RSTn) begin : fsm_seq
-    if (!RSTn) begin
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin : fsm_seq
+    if (!i_RSTn) begin
       state         <= IDLE;
       queue_size    <= 0;
       curr          <= '0;
@@ -158,7 +158,7 @@ module bram_tree #(
 
     case (state)
       IDLE: begin
-        if (i_wrt && !i_read && !o_full) begin // --- ENQUEUE ---
+        if (i_wrt && !i_read && o_write_ready) begin // --- ENQUEUE ---
           if (queue_size == 0) begin
             addr_a = 0;
             we_a = 1;
@@ -178,7 +178,7 @@ module bram_tree #(
             next_state = ENQUEUE_COMPARE_ROOT;
           end
           next_queue_size = queue_size + 1;
-        end else if (!i_wrt && i_read && !o_empty) begin // --- DEQUEUE ---
+        end else if (!i_wrt && i_read && o_read_ready) begin // --- DEQUEUE ---
           addr_a = 0;
           we_a = 1;
 
@@ -682,8 +682,8 @@ module bram_tree #(
     endcase
   end
 
-  assign o_full  = (queue_size == QUEUE_SIZE);
-  assign o_empty = (queue_size == 0);
+  assign o_write_ready  = !(queue_size == QUEUE_SIZE);
+  assign o_read_ready = !(queue_size == 0);
   assign o_data  = (queue_size == 0) ? 0 : out_reg;
   assign ready   = (state == IDLE);
 endmodule

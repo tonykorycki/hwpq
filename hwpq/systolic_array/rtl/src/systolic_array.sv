@@ -16,8 +16,8 @@
           i_wrt - Enqueue signal
           i_read - Dequeue signal
           i_data - Node data input
-  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
-           o_empty - High when the queue is empty
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
            o_data - Node data output (highest priority element)
 *******************************************************************************/
 
@@ -34,8 +34,8 @@ module systolic_array #(
     input var logic [DATA_WIDTH-1:0]  i_data,  // Node data input
 
     // Output
-    output var logic                  o_full,   // Queue is full
-    output var logic                  o_empty,  // Queue is empty
+    output var logic                  o_write_ready,   // High if the queue can accept a write
+    output var logic                  o_read_ready,  // High if the queue has data to read
     output var logic [DATA_WIDTH-1:0] o_data    // Node data output
 );
 
@@ -61,8 +61,8 @@ module systolic_array #(
 
   assign full  = (size >= QUEUE_SIZE);
   assign empty = (size <= 0);
-  assign o_full  = full;
-  assign o_empty = empty;
+  assign o_write_ready  = !full;
+  assign o_read_ready = !empty;
   assign o_data  = OB[0];
 
   // Sequential logic

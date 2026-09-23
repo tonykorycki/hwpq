@@ -6,8 +6,8 @@ module register_tree_tb;
   localparam int DATA_WIDTH = 16;
 
   // Clock and reset signals
-  logic                 CLK;
-  logic                 RSTn;
+  logic                 i_CLK;
+  logic                 i_RSTn;
 
   // Input signals - for ENQ_ENA enabled
   logic                  i_wrt_ena;
@@ -20,18 +20,18 @@ module register_tree_tb;
   logic [DATA_WIDTH-1:0] i_data_dis;
 
   // Output signals - for ENQ_ENA enabled
-  logic                  o_full_ena;
-  logic                  o_empty_ena;
+  logic                  o_write_ready_ena;
+  logic                  o_read_ready_ena;
   logic [DATA_WIDTH-1:0] o_data_ena;
   
   // Output signals - for ENQ_ENA disabled
-  logic                  o_full_dis;
-  logic                  o_empty_dis;
+  logic                  o_write_ready_dis;
+  logic                  o_read_ready_dis;
   logic [DATA_WIDTH-1:0] o_data_dis;
   
   // Current active outputs for testing
-  logic                  o_full;
-  logic                  o_empty;
+  logic                  o_write_ready;
+  logic                  o_read_ready;
   logic [DATA_WIDTH-1:0] o_data;
   logic [DATA_WIDTH-1:0] o_data_prev;
   
@@ -65,13 +65,13 @@ module register_tree_tb;
       .QUEUE_SIZE(QUEUE_SIZE),
       .DATA_WIDTH(DATA_WIDTH)
   ) u_RegisterTree_ena (
-      .i_CLK(CLK),
-      .i_RSTn(RSTn),
+      .i_CLK(i_CLK),
+      .i_RSTn(i_RSTn),
       .i_wrt(i_wrt_ena),
       .i_read(i_read_ena),
       .i_data(i_data_ena),
-      .o_full(o_full_ena),
-      .o_empty(o_empty_ena),
+      .o_write_ready(o_write_ready_ena),
+      .o_read_ready(o_read_ready_ena),
       .o_data(o_data_ena)
   );
   
@@ -81,44 +81,44 @@ module register_tree_tb;
       .QUEUE_SIZE(QUEUE_SIZE),
       .DATA_WIDTH(DATA_WIDTH)
   ) u_RegisterTree_dis (
-      .i_CLK(CLK),
-      .i_RSTn(RSTn),
+      .i_CLK(i_CLK),
+      .i_RSTn(i_RSTn),
       .i_wrt(i_wrt_dis),
       .i_read(i_read_dis),
       .i_data(i_data_dis),
-      .o_full(o_full_dis),
-      .o_empty(o_empty_dis),
+      .o_write_ready(o_write_ready_dis),
+      .o_read_ready(o_read_ready_dis),
       .o_data(o_data_dis)
   );
 
   always_comb begin : output_signal_switch
     case (current_mode)
       ENABLED : begin
-        o_full = o_full_ena;
-        o_empty = o_empty_ena;
+        o_write_ready = o_write_ready_ena;
+        o_read_ready = o_read_ready_ena;
         o_data = o_data_ena;
       end
       DISABLED : begin
-        o_full = o_full_dis;
-        o_empty = o_empty_dis;
+        o_write_ready = o_write_ready_dis;
+        o_read_ready = o_read_ready_dis;
         o_data = o_data_dis;
       end
       default : begin
-        o_full = o_full_dis;
-        o_empty = o_empty_dis;
+        o_write_ready = o_write_ready_dis;
+        o_read_ready = o_read_ready_dis;
         o_data = o_data_dis;
       end
     endcase
   end
 
   // Clock generation: 10ns period
-  always #5 CLK <= ~CLK;
+  always #5 i_CLK <= ~i_CLK;
 
   int error_count = 0;
 
   initial begin
     // Initialize signals
-    CLK = 0;
+    i_CLK = 0;
     i_wrt_ena = 0;
     i_read_ena = 0;
     i_data_ena = 0;
@@ -131,10 +131,10 @@ module register_tree_tb;
     ref_queue_prev = {};
 
     // Reset the modules
-    RSTn = 0;
-    @(posedge CLK);
-    RSTn = 1;
-    @(posedge CLK);
+    i_RSTn = 0;
+    @(posedge i_CLK);
+    i_RSTn = 1;
+    @(posedge i_CLK);
 
     // Test with ENQ_ENA enabled
     $display("\n=== Testing with ENQ_ENA enabled ===");
@@ -145,13 +145,13 @@ module register_tree_tb;
       random_value = $urandom_range(1, 1023);
       enqueue(random_value);
     end
-    assert (o_full) else begin error_count++; $error("The queue should be filled by the intialization!"); end;
+    assert (!o_write_ready) else begin error_count++; $error("The queue should be filled by the intialization!"); end;
 
     // Test Case 1: Dequeue nodes with ENQ_ENA enabled
     $display("\nTest Case 1: Dequeue Test (ENQ_ENA enabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
       dequeue();
-      if (!o_empty) begin
+      if (o_read_ready) begin
         assert (o_data == ref_queue_enq_1[0]) else begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
       end else begin
         assert (o_data == '0) else begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data); end;
@@ -165,7 +165,7 @@ module register_tree_tb;
       enqueue(random_value);
       assert (o_data == ref_queue_enq_1[0]) else begin error_count++; $error("Enqueue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
     end
-    assert (o_full) else begin error_count++; $error("The queue should be filled after enqueue!"); end;
+    assert (!o_write_ready) else begin error_count++; $error("The queue should be filled after enqueue!"); end;
 
     // Test Case 3: Replace nodes with ENQ_ENA enabled
     $display("\nTest Case 3: Replace Test (ENQ_ENA enabled)");
@@ -187,7 +187,7 @@ module register_tree_tb;
         end
         DEQUEUE: begin
           dequeue();
-          if (!o_empty) begin
+          if (o_read_ready) begin
             assert (o_data == ref_queue_enq_1[0]) else begin error_count++; $error("Random Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
           end else begin
             assert (o_data == '0) else begin error_count++; $error("Random Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data); end;
@@ -206,10 +206,10 @@ module register_tree_tb;
     $display("\n=== Testing with ENQ_ENA disabled ===");
     current_mode = DISABLED;
 
-    RSTn = 0;
-    @(posedge CLK);
-    RSTn = 1;
-    @(posedge CLK);
+    i_RSTn = 0;
+    @(posedge i_CLK);
+    i_RSTn = 1;
+    @(posedge i_CLK);
 
     // Initialize queue inside enqueue disabled module
     $display("\nInitializing enqueue disabled module by replacing into it");
@@ -221,15 +221,15 @@ module register_tree_tb;
     end
     rsort_dis();
 
-    repeat (4) @(posedge CLK);
+    repeat (4) @(posedge i_CLK);
 
     // Test Case 4: Dequeue Test with ENQ_ENA disabled
     $display("\nTest Case 4: Dequeue Test (ENQ_ENA disabled)");
-    assert (o_full)
+    assert (!o_write_ready)
     else begin error_count++; $error("The queue should be filled by the intialization!"); end;
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
       dequeue();
-      if (!o_empty) begin
+      if (o_read_ready) begin
         assert (o_data == ref_queue_enq_0[0])
         else
           begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data); end;
@@ -268,7 +268,7 @@ module register_tree_tb;
       end
       assert (!error_flag) else begin error_count++; $error("The queue should not have change!"); end;
     end
-    assert (!o_full && !o_empty) else begin error_count++; $error("The queue should not do anything!"); end;
+    assert (o_write_ready && o_read_ready) else begin error_count++; $error("The queue should not do anything!"); end;
 
     // Test Case 6: Test Replace operation with ENQ_ENA disabled
     $display("\nTest Case 6: Replace Test (ENQ_ENA disabled)");
@@ -287,7 +287,7 @@ module register_tree_tb;
       case (random_operation)
         DEQUEUE: begin
           dequeue();
-          if (!o_empty) begin
+          if (o_read_ready) begin
             assert (o_data == ref_queue_enq_0[0])
             else
               begin error_count++; $error(
@@ -325,7 +325,7 @@ module register_tree_tb;
 
   task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
     begin
-      if (!o_full) begin
+      if (o_write_ready) begin
         case (current_mode)
           ENABLED: begin
             i_wrt_ena = 1;
@@ -349,17 +349,17 @@ module register_tree_tb;
       end else begin
         $display("Enqueue: Queue full, skipping enqueue");
       end
-      @(posedge CLK);
+      @(posedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
       case (current_mode)
         ENABLED: begin
-          repeat ($clog2(QUEUE_SIZE)) @(posedge CLK);
+          repeat ($clog2(QUEUE_SIZE)) @(posedge i_CLK);
         end
         DISABLED: begin
-          repeat (2) @(posedge CLK); // should have no effects
+          repeat (2) @(posedge i_CLK); // should have no effects
         end
         default: begin
           $display("Enqueue: Invalid mode, skipping enqueue");
@@ -370,7 +370,7 @@ module register_tree_tb;
 
   task automatic dequeue();
     begin
-      if (!o_empty) begin
+      if (o_read_ready) begin
         case (current_mode)
         ENABLED: begin        
           i_wrt_ena  = 0;
@@ -400,13 +400,13 @@ module register_tree_tb;
       end else begin
         $display("Dequeue: Queue empty, skipping dequeue");
       end
-      @(posedge CLK);
+      @(posedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
       
-      repeat (2) @(posedge CLK);
+      repeat (2) @(posedge i_CLK);
     end
   endtask
 
@@ -417,7 +417,7 @@ module register_tree_tb;
         i_wrt_ena  = 1;
         i_read_ena = 1;
         i_data_ena = value;
-        if (o_empty) begin
+        if (!o_read_ready) begin
           ref_queue_enq_1[ref_queue_enq_1_size] = value;
           ref_queue_enq_1_size++;
           
@@ -431,7 +431,7 @@ module register_tree_tb;
         i_wrt_dis  = 1;
         i_read_dis = 1;
         i_data_dis = value;
-        if (o_empty) begin
+        if (!o_read_ready) begin
           ref_queue_enq_0[ref_queue_enq_0_size] = value;
           ref_queue_enq_0_size++;
           rsort_dis();
@@ -441,12 +441,12 @@ module register_tree_tb;
         end
       end
       endcase
-      @(posedge CLK);
+      @(posedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      repeat (2) @(posedge CLK); 
+      repeat (2) @(posedge i_CLK); 
     end  
   endtask
 
@@ -464,12 +464,12 @@ module register_tree_tb;
           i_data_dis = value;
         end
       endcase
-      @(posedge CLK);
+      @(posedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      repeat (2) @(posedge CLK);
+      repeat (2) @(posedge i_CLK);
     end
   endtask
 

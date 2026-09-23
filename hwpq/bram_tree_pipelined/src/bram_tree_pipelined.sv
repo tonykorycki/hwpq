@@ -100,6 +100,19 @@ module bram_tree_pipelined #(
   logic sift_done, next_sift_done;  // whole walk finished - may accept a command
   logic root_done, next_root_done;  // root written back - o_data is trustworthy
   logic cmd_dequeue, cmd_replace;
+  logic accept_ok;                  // quiescent and initialised: may take a command
+  logic head_servable;              // the root holds data, not a placeholder
+
+  // Reset fill. The BRAMs have no reset port, and the `initial` block in
+  // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up value
+  // and a formal tool ignores it outright. So nothing restored the all-ones
+  // placeholder fill: a reset arriving with data in the queue cleared the
+  // registers and left the memory holding stale nodes behind a queue_size of 0.
+  // FILL_LAST is one past the last address because addr/din/we are registered, so
+  // the write issued at NODES_NEEDED-1 does not commit until the cycle after.
+  localparam integer FILL_LAST = NODES_NEEDED + 1;
+  logic filling;
+  logic [$clog2(FILL_LAST+1)-1:0] fill_cnt;
   logic [DATA_WIDTH-1:0] cmd_data;   // command payload latched at accept
 
   // integers for iteration
@@ -172,6 +185,14 @@ module bram_tree_pipelined #(
 
   always_comb begin : fsm_comb
     next_state = IDLE;  // default next state, latch preventing
+    // Parked during the reset fill. IDLE otherwise advances to READ_MEM
+    // unconditionally, so the walk free-runs with no command outstanding -- which
+    // during the fill means it drives the comparator from whatever the memory is
+    // reading back mid-sweep, and is free to write that result over the fill on
+    // the cycle `filling` drops.
+    if (filling) begin
+      next_state = IDLE;
+    end else begin
     case (state)
       IDLE: begin
         next_state = READ_MEM;
@@ -230,6 +251,7 @@ module bram_tree_pipelined #(
         next_state = IDLE;
       end
     endcase
+    end
   end
 
   //-------------------------------------------------------------------------
@@ -303,8 +325,14 @@ module bram_tree_pipelined #(
           next_addr_b[2] = 2 * parent_idx + 1;
         end else if (parent_lvl > 'd1) begin
           next_addr_a[parent_lvl]   = parent_idx;
-          next_addr_a[parent_lvl+1] = 2 * parent_idx;
-          next_addr_b[parent_lvl+1] = 2 * parent_idx + 1;
+          // The per-level arrays are [2:TREE_DEPTH-1], so [parent_lvl+1] is out
+          // of range at the deepest level -- where there are no children to
+          // address anyway. Simulation discarded these writes silently; the
+          // guard says so.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_addr_a[parent_lvl+1] = 2 * parent_idx;
+            next_addr_b[parent_lvl+1] = 2 * parent_idx + 1;
+          end
         end
       end
 
@@ -319,8 +347,18 @@ module bram_tree_pipelined #(
           next_comp_right_child_in = dout_b[2];
         end else if (parent_lvl > 'd1) begin
           next_comp_parent_in = dout_a[parent_lvl];
-          next_comp_left_child_in = dout_a[parent_lvl+1];
-          next_comp_right_child_in = dout_b[parent_lvl+1];
+          // At the deepest level there are no children and dout_*[parent_lvl+1]
+          // is out of range, returning X. Every downstream compare then went X,
+          // no branch was taken, and the walk terminated by accident. Feeding
+          // the minimum makes that same outcome explicit and well defined: the
+          // parent outranks both absent children, so no swap is possible.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_comp_left_child_in = dout_a[parent_lvl+1];
+            next_comp_right_child_in = dout_b[parent_lvl+1];
+          end else begin
+            next_comp_left_child_in = '0;
+            next_comp_right_child_in = '0;
+          end
         end
       end
 
@@ -359,8 +397,12 @@ module bram_tree_pipelined #(
           next_we_b[2] = 1'b1;
         end else if (parent_lvl > 'd1) begin
           next_din_a[parent_lvl]   = comp_parent_out;
-          next_din_a[parent_lvl+1] = comp_left_child_out;
-          next_din_b[parent_lvl+1] = comp_right_child_out;
+          // The write ENABLES for the deepest level are already cleared below;
+          // these data assignments were not, and index out of range there.
+          if (parent_lvl < TREE_DEPTH - 1) begin
+            next_din_a[parent_lvl+1] = comp_left_child_out;
+            next_din_b[parent_lvl+1] = comp_right_child_out;
+          end
           // find where the next parent index is
           if (comp_left_child_out != comp_left_child_in) begin
             next_parent_lvl = parent_lvl + 1;
@@ -404,6 +446,22 @@ module bram_tree_pipelined #(
       default: begin
       end
     endcase
+
+    // The fill overrides the walk's port driving. It cannot collide with it: no
+    // command is accepted while `filling`, so no walk is in flight.
+    if (filling) begin
+      next_parent_lvl = '0;
+      next_parent_idx = '0;
+      next_level_0    = '1;
+      next_level_1[0] = '1;
+      next_level_1[1] = '1;
+      for (lvl_comb = 2; lvl_comb < TREE_DEPTH; lvl_comb++) begin
+        next_addr_a[lvl_comb] = fill_cnt[ADDRESS_WIDTH:0];
+        next_din_a[lvl_comb]  = '1;
+        next_we_a[lvl_comb]   = (fill_cnt < NODES_NEEDED[$bits(fill_cnt)-1:0]);
+        next_we_b[lvl_comb]   = 1'b0;
+      end
+    end
   end
 
   //-------------------------------------------------------------------------
@@ -425,13 +483,34 @@ module bram_tree_pipelined #(
     if (cmd_dequeue) begin
       next_queue_size = queue_size - 1; // cmd_dequeue is gated on !empty so this cannot underflow
     end else if (cmd_replace) begin
-      if (o_data == '1) begin //special case for following a reset, we need to replace all the values in
+      // The full guard is load-bearing. o_data == '1 means the root still holds a
+      // placeholder, which is normally the fill phase -- but the root can hold one
+      // while the queue is already occupied, so without the guard a replace in
+      // that state counts an insert the queue has no room for and queue_size runs
+      // past QUEUE_SIZE. The enqueue and dequeue arms were always guarded; this
+      // one was not.
+      if (o_data == '1 && queue_size < QUEUE_SIZE) begin //special case for following a reset, we need to replace all the values in
         next_queue_size = queue_size + 1;
       end else if (queue_size == 0 && i_data != 0) begin  // this would be a special case for replace, function as enqueue
         next_queue_size = queue_size + 1;
       end else begin
         next_queue_size = queue_size;
       end
+    end
+  end
+
+  //-------------------------------------------------------------------------
+  // Reset fill sequencer
+  //-------------------------------------------------------------------------
+  // Runs after every reset, not just the first. No command is accepted while it
+  // runs, so it cannot race the sift walk.
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin : fill_seq
+    if (!i_RSTn) begin
+      filling  <= 1'b1;
+      fill_cnt <= '0;
+    end else if (filling) begin
+      if (fill_cnt == FILL_LAST[$bits(fill_cnt)-1:0]) filling <= 1'b0;
+      else                                            fill_cnt <= fill_cnt + 1'b1;
     end
   end
 
@@ -469,8 +548,26 @@ module bram_tree_pipelined #(
     end
   end
 
-  assign cmd_dequeue = !i_wrt && i_read && sift_done && (queue_size != 0);
-  assign cmd_replace = i_wrt && i_read && sift_done;
+  // "May accept a command": quiescent AND past the reset fill. One notion, used by
+  // both the ready ports and the command decode, so the two cannot drift apart --
+  // that gap is the defect F-7 recorded on systolic_array and the one fixed here
+  // when o_read_ready was gated on root_done.
+  assign accept_ok = sift_done && !filling;
+
+  // Head-sentinel gate -- the F-1 containment the four register architectures
+  // already carry. A replace-only queue boots physically full of all-ones
+  // placeholders while queue_size reports 0, so during the fill phase the root can
+  // hold a placeholder the queue must not hand out as data.
+  //
+  // The term is on the COMMAND as well as on the port. Gating the port alone would
+  // leave cmd_dequeue accepting a dequeue that o_read_ready does not advertise --
+  // the ready/accept gap of F-7, pointing the other way -- and the containment is
+  // precisely that a contract-violating dequeue becomes inert rather than
+  // corrupting the size accounting.
+  assign head_servable = (level_0 != '1);
+
+  assign cmd_dequeue = !i_wrt && i_read && accept_ok && (queue_size != 0) && head_servable;
+  assign cmd_replace = i_wrt && i_read && accept_ok;
 
   // The replace state does not execute until the cycle after the command is accepted, so sampling i_data there would read
   // whatever the master happens to be driving one cycle later.  Every other queue in this repo captures i_data in the same cycle, 
@@ -486,8 +583,16 @@ module bram_tree_pipelined #(
   //-------------------------------------------------------------------------
   // Assignments for status and output.
   //-------------------------------------------------------------------------
-  assign o_write_ready = sift_done;
-  assign o_read_ready  = !(queue_size == 0) && root_done;
+  assign o_write_ready = accept_ok;
+  // root_done rises on the ROOT write-back, the first of the walk; sift_done only
+  // when the walk terminates, up to TREE_DEPTH-1 levels and ~4 cycles per level
+  // later. Advertising a read on root_done meant the module offered a dequeue it
+  // would then silently discard, because cmd_dequeue is gated on sift_done.
+  //
+  // Gating on sift_done costs nothing: no command could be accepted inside that
+  // window anyway. The only thing lost is an early data-valid hint, and the
+  // six-port interface gives no way for a caller to consume one.
+  assign o_read_ready  = !(queue_size == 0) && accept_ok && head_servable;
   assign o_data  = level_0;
 
 endmodule

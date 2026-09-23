@@ -14,7 +14,20 @@
       The settle wire lives in the shim so a module without a real handshake
       can later synthesize it from a counter without touching this body.
 
-  OPTIONAL SHIM OVERRIDE (before the include):
+  OPTIONAL SHIM OVERRIDES (before the include):
+    `define TB_CAPACITY <expr>
+      Defaults to QUEUE_SIZE. The number of elements the DUT actually holds, which
+      is what the readies are checked against. systolic_array reserves two slots
+      as shift-chain margin (F-9), so its shim sets QUEUE_SIZE-2.
+
+    `define TB_CHECK_INTERNAL <task_call>;
+      Defaults to nothing. A statement invoked at every settled point, for a shim
+      that can reach inside its DUT -- the tree shims check the heap invariant by
+      hierarchical reference. The task itself is defined in the shim, after the
+      include; a forward reference to it from this body is fine, but any VARIABLE
+      it touches must be declared before the include, because iverilog binds
+      module-scope names in file order.
+
     `define TB_TRACKS_FULL 0
       Defaults to 1. Set 0 for a DUT whose o_write_ready does NOT drop when full.
       A replace-only DUT with no enqueue path (e.g. bram_tree_pipelined) gates nothing
@@ -44,6 +57,19 @@
   `define TB_TRACKS_FULL 1
 `endif
 
+// Elements the DUT will actually hold. QUEUE_SIZE everywhere except
+// systolic_array, whose `full` is (size >= QUEUE_SIZE - 2) -- the two reserved
+// slots are the shift chain's margin, and one is provably not enough (F-9).
+`ifndef TB_CAPACITY
+  `define TB_CAPACITY QUEUE_SIZE
+`endif
+
+// Optional white-box check, invoked at every settled point. Expands to nothing
+// unless the shim defines it (see TB_CHECK_INTERNAL in the header comment).
+`ifndef TB_CHECK_INTERNAL
+  `define TB_CHECK_INTERNAL
+`endif
+
 logic i_CLK;
 logic i_RSTn;
 
@@ -60,10 +86,35 @@ logic settled;
 logic [DATA_WIDTH-1:0] ref_queue [$:QUEUE_SIZE-1];
 int                    ref_queue_size = 0;
 
+// Is the readies-vs-model check in force? An ENQ_ENA=0 DUT boots physically full
+// of '1 placeholders while size resets to 0, and o_read_ready is gated on the
+// head not being one, so !o_read_ready and a non-empty model coexist legitimately
+// until the fill completes. Formal scopes the same window with ASSUME_FILL_FIRST
+// (CH-4). Enqueue-capable builds never seat a placeholder, so it is always set.
+bit fill_complete = 0;
+
 logic [DATA_WIDTH-1:0] ref_queue_prev [$:QUEUE_SIZE-1];
 int                    ref_queue_prev_size = 0;
 
 logic [DATA_WIDTH-1:0] o_data_prev;
+
+// Payload alphabet (SIMULATION.md recommendation 5).
+//
+// $urandom_range(1, 1023) over a 16-bit payload means ties essentially never
+// occur, so the comparators are least tested exactly where ordering and
+// tie-breaking bugs live. The proofs run at DATA_WIDTH=2 -- two legal values
+// once both sentinels are reserved -- where every comparison is a tie. This
+// narrows the stimulus to 1..3 for one phase to force duplicates.
+//
+// Both reserved values stay off the alphabet either way: '0 is the empty marker
+// and the dequeue mechanism, '1 is the max-priority placeholder, and both are
+// reserved in every build.
+bit narrow_alphabet = 0;
+
+function automatic logic [DATA_WIDTH-1:0] rand_value();
+  return narrow_alphabet ? DATA_WIDTH'($urandom_range(1, 3))
+                         : DATA_WIDTH'($urandom_range(1, 1023));
+endfunction
 
 logic [DATA_WIDTH-1:0] random_value;
 int                    random_operation;
@@ -155,6 +206,33 @@ task automatic clear_cmd();
   i_data = 0;
 endtask
 
+//  The readies, checked against the model (SIMULATION.md recommendation 3)
+//
+// F-2: the model's updates used to be gated on the DUT's own ready signals, so
+// it could not disagree with the DUT. "Refuses work it should accept" was
+// structurally uncatchable -- which is exactly F-7, and why simulation missed it.
+//
+// This inverts the dependency. The model owns its occupancy and the readies are
+// an assertion about it, not an input to it.
+task automatic check_readies(input string where);
+  begin
+    // Unconditional: the heap invariant holds through the fill phase too, and
+    // formal proves exactly this for the tree family -- a_timer_is_sound in
+    // formal/spec/hwpq_tree_aux.sv establishes head_valid |-> heap_holds.
+    `TB_CHECK_INTERNAL
+    if (fill_complete) begin
+      assert (o_read_ready == (ref_queue_size != 0))
+      else begin error_count++; $error("Readies (%s): o_read_ready=%0b but the model holds %0d element(s)",
+                                       where, o_read_ready, ref_queue_size); end
+      if (`TB_TRACKS_FULL) begin
+        assert (o_write_ready == (ref_queue_size != `TB_CAPACITY))
+        else begin error_count++; $error("Readies (%s): o_write_ready=%0b but the model holds %0d of %0d",
+                                         where, o_write_ready, ref_queue_size, `TB_CAPACITY); end
+      end
+    end
+  end
+endtask
+
 //  Stimulus tasks, gated on settled
 
 task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
@@ -162,8 +240,11 @@ task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
   bit  accepted;
   begin
     poll_settled();  // the DUT refuses commands while settling
+    check_readies("before enqueue");
+    // The MODEL decides whether there is room; o_write_ready is asserted against
+    // that decision rather than consulted for it (F-2).
     accepted = 0;
-    if (o_write_ready) begin
+    if (ref_queue_size != `TB_CAPACITY) begin
       i_wrt  = 1;
       i_read = 0;
       i_data = value;
@@ -175,13 +256,14 @@ task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
         accepted = 1;
       end
     end else begin
-      $display("Enqueue: Queue full, skipping enqueue");
+      $display("Enqueue: model is full, skipping enqueue");
     end
     t0 = cycle;
     @(posedge i_CLK);  // DUT captures the command here
     @(negedge i_CLK);  // release it off the edge
     clear_cmd();
     poll_settled();
+    check_readies("after enqueue");
     if (accepted) record(ENQUEUE, cycle - t0);
   end
 endtask
@@ -191,8 +273,11 @@ task automatic dequeue();
   bit  accepted;
   begin
     poll_settled();
+    check_readies("before dequeue");
+    // The MODEL decides whether there is data; o_read_ready is asserted against
+    // that decision rather than consulted for it (F-2).
     accepted = 0;
-    if (o_read_ready) begin
+    if (ref_queue_size != 0) begin
       i_wrt  = 0;
       i_read = 1;
       i_data = 0;
@@ -204,13 +289,14 @@ task automatic dequeue();
       ref_queue_size--;
       accepted = 1;
     end else begin
-      $display("Dequeue: Queue empty, skipping dequeue");
+      $display("Dequeue: model is empty, skipping dequeue");
     end
     t0 = cycle;
     @(posedge i_CLK);
     @(negedge i_CLK);
     clear_cmd();
     poll_settled();
+    check_readies("after dequeue");
     if (accepted) record(DEQUEUE, cycle - t0);
   end
 endtask
@@ -219,11 +305,13 @@ task automatic replace(input logic [DATA_WIDTH-1:0] value);
   int t0;
   begin
     poll_settled();
+    check_readies("before replace");
     i_wrt  = 1;
     i_read = 1;
     i_data = value;
-    if (!o_read_ready) begin
-      // Empty queue: replace degenerates to an insert.
+    if (ref_queue_size == 0) begin
+      // Empty queue: replace degenerates to an insert. Decided by the model, not
+      // by o_read_ready (F-2).
       ref_queue[ref_queue_size] = value;
       ref_queue_size++;
     end else begin
@@ -235,6 +323,7 @@ task automatic replace(input logic [DATA_WIDTH-1:0] value);
     @(negedge i_CLK);
     clear_cmd();
     poll_settled();
+    check_readies("after replace");
     record(REPLACE, cycle - t0);
   end
 endtask
@@ -262,6 +351,283 @@ task automatic apply_reset();
     i_RSTn = 1;
     @(posedge i_CLK);
     @(negedge i_CLK);  // enter the negedge contract before any poll
+    // An ENQ_ENA=0 DUT comes back physically full of placeholders, so the
+    // readies-vs-model check is out of force until the fill completes.
+    fill_complete = ENQ_ENA;
+  end
+endtask
+
+//  Reset during operation (SIMULATION.md recommendation 1)
+//
+// apply_reset() runs once, before any stimulus, so a defect that needs a reset
+// arriving while the queue holds data is unreachable by construction. bram_tree's
+// F-29 -- reset never restoring the node memory -- is exactly that shape, and no
+// amount of extra stimulus finds it. These tasks assert reset at points inside a
+// live operation and check the DUT comes back genuinely empty.
+//
+// Formal (F-15) proves every proven architecture recovers from a reset at any
+// reachable moment, so this phase is expected to pass everywhere. A failure here
+// is a real finding.
+
+// After a reset the model holds nothing in BOTH builds: an ENQ_ENA=0 DUT boots
+// physically full of '1 placeholders but logically empty.
+task automatic model_reset();
+  begin
+    ref_queue      = {};
+    ref_queue_size = 0;
+  end
+endtask
+
+// Fill a freshly reset queue to capacity.
+// ONLY valid immediately after model_reset(): the ENQ_ENA=0 arm assumes every
+// slot still holds a placeholder, and it must fill completely before any read,
+// because a resident placeholder outranks the payload and gates o_read_ready
+// low (F-1, the fill-before-read contract).
+task automatic refill_after_reset();
+  begin
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
+      random_value = rand_value();
+      if (ENQ_ENA) begin
+        enqueue(random_value);
+      end else begin
+        ref_queue.push_back(random_value);
+        ref_queue_size++;
+        replace_init(random_value);
+      end
+    end
+    rsort();
+    fill_complete = 1;
+    poll_settled();
+  end
+endtask
+
+// Assert reset `delay` negedges after a command is captured, so it lands INSIDE
+// the settle window rather than between operations. delay=0 is the negedge
+// immediately following the capture edge.
+task automatic reset_during(input operation_t op, input int delay);
+  begin
+    poll_settled();
+    case (op)
+      ENQUEUE: begin i_wrt = 1; i_read = 0; i_data = rand_value(); end
+      DEQUEUE: begin i_wrt = 0; i_read = 1; i_data = 0;                       end
+      REPLACE: begin i_wrt = 1; i_read = 1; i_data = rand_value(); end
+    endcase
+    @(posedge i_CLK);  // the DUT captures the command here
+    @(negedge i_CLK);
+    clear_cmd();
+    repeat (delay) @(negedge i_CLK);
+    apply_reset();
+    model_reset();
+  end
+endtask
+
+// A reset must leave the queue with nothing to hand back, whatever it was doing.
+task automatic check_reset_emptied(input string what);
+  begin
+    poll_settled();
+    assert (!o_read_ready)
+    else begin error_count++; $error("Reset (%s): queue still advertises data after reset", what); end
+  end
+endtask
+
+// Refill and drain the whole queue in order. A reset that left stale nodes behind
+// shows up here and nowhere else -- the head alone cannot distinguish a clean heap
+// from one still holding pre-reset elements.
+task automatic refill_and_drain_check(input string what);
+  begin
+    refill_after_reset();
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
+      dequeue();
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Reset (%s): drain step %0d -> expected %d, got %d", what, i, ref_queue[0], o_data); end
+      else
+        assert (o_data == '0)
+        else begin error_count++; $error("Reset (%s): drain step %0d, now empty -> expected 0, got %d", what, i, o_data); end
+    end
+    assert (!o_read_ready)
+    else begin error_count++; $error("Reset (%s): queue did not empty after %0d dequeues", what, QUEUE_SIZE); end
+  end
+endtask
+
+// Drain what the model says is held, comparing the whole ordered sequence
+// (SIMULATION.md recommendation 4). Every other check here reads o_data alone,
+// so a differently shaped but still valid heap is indistinguishable from the
+// port -- which is why F-32, a corrupted root capacity, left bram_tree green
+// against the entire black-box formal spec.
+task automatic drain_and_compare(input string what);
+  int held;
+  begin
+    poll_settled();
+    held = ref_queue_size;
+    for (int i = 0; i < held; i++) begin
+      dequeue();
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Sequence (%s): step %0d of %0d -> expected %d, got %d", what, i, held, ref_queue[0], o_data); end
+      else
+        assert (o_data == '0)
+        else begin error_count++; $error("Sequence (%s): step %0d of %0d, now empty -> expected 0, got %d", what, i, held, o_data); end
+    end
+    assert (ref_queue_size == 0 && !o_read_ready)
+    else begin error_count++; $error("Sequence (%s): queue did not empty (model %0d, o_read_ready=%0b)", what, ref_queue_size, o_read_ready); end
+  end
+endtask
+
+// Drain the whole queue, check the sequence, and restore it to capacity.
+// A replace-only DUT can hold at most one element once drained -- replace pops
+// the head as it pushes -- so restoring means a reset and a fresh fill, which is
+// uniform across both builds anyway.
+task automatic drain_compare_refill(input string what);
+  begin
+    drain_and_compare(what);
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
+// One sub-case: start clean, fill, reset at the point under test, verify.
+task automatic reset_case(input operation_t op, input int delay, input int predrain, input string what);
+  begin
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    for (int i = 0; i < predrain; i++) dequeue();
+    reset_during(op, delay);
+    check_reset_emptied(what);
+    refill_and_drain_check(what);
+  end
+endtask
+
+//  Conventional ready/valid master (SIMULATION.md recommendation 6)
+//
+// Every task above samples ready with the command lines deasserted and only
+// then drives. None of them holds valid waiting for ready, which is what an
+// ordinary master does. bram_tree derived BOTH readies from the command inputs
+// (F-28), so ready and valid could never be high together: a master like this
+// deadlocks against it, and the polite tasks could not see that at all. It also
+// inflated the reported minimum latency by one cycle.
+
+// Hold valid until the DUT raises ready, then let the transfer happen.
+// Ready is sampled at the negedge with valid still asserted, so a DUT that
+// lowers ready in response to the request never comes back and the guard fires.
+task automatic master_op(input operation_t op, input logic [DATA_WIDTH-1:0] value);
+  int   guard;
+  logic ready;
+  begin
+    poll_settled();
+    case (op)
+      ENQUEUE: begin i_wrt = 1; i_read = 0; end
+      DEQUEUE: begin i_wrt = 0; i_read = 1; end
+      REPLACE: begin i_wrt = 1; i_read = 1; end
+    endcase
+    i_data = value;
+    // Settle the combinational cone BEFORE sampling. Reading a ready in the same
+    // timestep it was driven returns the stale value, which would make this
+    // master indistinguishable from the polite tasks -- it would never actually
+    // wait, and the deadlock it exists to detect would go unseen.
+    #1;
+
+    // Valid is now held. Wait for ready WITHOUT dropping it.
+    guard = 0;
+    ready = 0;
+    while (!ready) begin
+      // replace needs neither space nor data, only quiescence
+      ready = (op == ENQUEUE) ? o_write_ready :
+              (op == DEQUEUE) ? o_read_ready  : settled;
+      if (!ready) begin
+        @(negedge i_CLK);
+        guard++;
+        if (guard > SETTLE_TIMEOUT)
+          $fatal(1, "master_op: DUT never raised ready with valid held (op=%0d, o_write_ready=%0b o_read_ready=%0b) -- a ready derived from the request deadlocks a conventional master",
+                 op, o_write_ready, o_read_ready);
+      end
+    end
+
+    @(posedge i_CLK);  // ready was high at the preceding negedge: transfer here
+    @(negedge i_CLK);
+    clear_cmd();
+    poll_settled();
+  end
+endtask
+
+// The readies must be a function of registered state, not of the command lines.
+// Drive each command encoding BETWEEN clock edges, so nothing is captured, and
+// check neither ready moves. This is now a library-wide invariant -- bram_tree
+// was the last exception and F-28 fixed it -- so it is worth enforcing before
+// it drifts back.
+task automatic check_readies_independent(input string where);
+  logic wr0, rd0;
+  begin
+    poll_settled();
+    clear_cmd();
+    @(negedge i_CLK);
+    wr0 = o_write_ready;
+    rd0 = o_read_ready;
+
+    i_wrt = 1; i_read = 0; i_data = rand_value(); #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): an enqueue request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    i_wrt = 0; i_read = 1; #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): a dequeue request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    i_wrt = 1; i_read = 1; #1;
+    assert (o_write_ready == wr0 && o_read_ready == rd0)
+    else begin error_count++; $error("Ready independence (%s): a replace request moved the readies {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     where, wr0, rd0, o_write_ready, o_read_ready); end
+
+    clear_cmd();
+    @(negedge i_CLK);  // cross the posedge with the command lines clear
+  end
+endtask
+
+//  Impolite stimulus (SIMULATION.md recommendation 2)
+//
+// The tb walks up to every handshake violation and turns around: enqueue()
+// prints "Queue full, skipping enqueue" and dequeue() consults o_read_ready
+// first. The largest single category in FINDINGS.md lives in the space that
+// politeness excludes -- F-7, F-8, F-30 and F-31 are all "a refused command is
+// not inert". These tasks issue the command anyway.
+//
+// Note the shape of the assertion: it asserts that NOTHING happens. A refused
+// command doing nothing is the contract (the F-8 principle); a refused command
+// doing something is the defect.
+
+// Drive a raw command with no ready check and no model update, then settle.
+task automatic poke(input logic wrt, input logic read, input logic [DATA_WIDTH-1:0] value);
+  begin
+    poll_settled();
+    i_wrt  = wrt;
+    i_read = read;
+    i_data = value;
+    @(posedge i_CLK);
+    @(negedge i_CLK);
+    clear_cmd();
+    poll_settled();
+  end
+endtask
+
+// The DUT must be inert across an illegal command: head and both readies
+// unmoved. The caller checks afterwards that a legal operation still works.
+task automatic check_inert(input logic wrt, input logic read, input string what);
+  logic [DATA_WIDTH-1:0] head_before;
+  logic                  wr_before, rd_before;
+  begin
+    poll_settled();
+    head_before = o_data;
+    wr_before   = o_write_ready;
+    rd_before   = o_read_ready;
+    poke(wrt, read, rand_value());
+    assert (o_data == head_before)
+    else begin error_count++; $error("Inert (%s): head moved %d -> %d", what, head_before, o_data); end
+    assert (o_write_ready == wr_before && o_read_ready == rd_before)
+    else begin error_count++; $error("Inert (%s): readies moved {w=%0b,r=%0b} -> {w=%0b,r=%0b}",
+                                     what, wr_before, rd_before, o_write_ready, o_read_ready); end
   end
 endtask
 
@@ -272,7 +638,7 @@ task automatic test_enq_enabled();
 
     $display("\nInitializing by enqueue");
     for (int i = 0; i < QUEUE_SIZE; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
     end
     assert (!o_write_ready)
@@ -291,7 +657,7 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 2: Enqueue Test (ENQ_ENA enabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -301,7 +667,7 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 3: Replace Test (ENQ_ENA enabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       replace(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -309,10 +675,13 @@ task automatic test_enq_enabled();
 
     $display("\nTest Case 4: Stress Test (ENQ_ENA enabled)");
     for (int i = 0; i < stress_test_iters; i++) begin
+      // Periodic full-sequence check, so the stress loop is not judged on the
+      // head alone for its whole length.
+      if (i == stress_test_iters / 2) drain_compare_refill("mid-stress, ENQ_ENA=1");
       random_operation = $urandom_range(1, 3);
       case (random_operation)
         ENQUEUE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           enqueue(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -327,7 +696,7 @@ task automatic test_enq_enabled();
             else begin error_count++; $error("Random Dequeue: mismatch -> expected %d, got %d", '0, o_data); end
         end
         REPLACE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           replace(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -343,12 +712,13 @@ task automatic test_enq_disabled();
 
     $display("\nInitializing by replace");
     for (int i = 0; i < QUEUE_SIZE; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       ref_queue.push_back(random_value);
       ref_queue_size++;
       replace_init(random_value);
     end
     rsort();
+    fill_complete = 1;
     poll_settled();
 
     $display("\nTest Case 5: Dequeue Test (ENQ_ENA disabled)");
@@ -372,7 +742,7 @@ task automatic test_enq_disabled();
     ref_queue_prev      = ref_queue;
     ref_queue_prev_size = ref_queue_size;
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       enqueue(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -396,7 +766,7 @@ task automatic test_enq_disabled();
 
     $display("\nTest Case 7: Replace Test (ENQ_ENA disabled)");
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
-      random_value = $urandom_range(1, 1023);
+      random_value = rand_value();
       replace(random_value);
       assert (o_data == ref_queue[0])
       else begin error_count++; $error("Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -404,6 +774,7 @@ task automatic test_enq_disabled();
 
     $display("\nTest Case 8: Stress Test (ENQ_ENA disabled)");
     for (int i = 0; i < stress_test_iters; i++) begin
+      if (i == stress_test_iters / 2) drain_compare_refill("mid-stress, ENQ_ENA=0");
       random_operation = $urandom_range(2, 3);
       case (random_operation)
         DEQUEUE: begin
@@ -416,7 +787,7 @@ task automatic test_enq_disabled();
             else begin error_count++; $error("Random Dequeue: mismatch -> expected %d, got %d", '0, o_data); end
         end
         REPLACE: begin
-          random_value = $urandom_range(1, 1023);
+          random_value = rand_value();
           replace(random_value);
           assert (o_data == ref_queue[0])
           else begin error_count++; $error("Random Replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
@@ -426,7 +797,179 @@ task automatic test_enq_disabled();
   end
 endtask
 
-// Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
+task automatic test_reset_midstream();
+  begin
+    $display("\nTest Case 9: Reset during operation");
+
+    // Quiescent reset with the queue full.
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    apply_reset();
+    model_reset();
+    check_reset_emptied("full, quiescent");
+    refill_and_drain_check("full, quiescent");
+
+    // Reset landing inside a live operation, at three depths into the settle.
+    for (int d = 0; d < 3; d++) begin
+      int delay;
+      delay = (d == 2) ? 3 : d;
+      reset_case(DEQUEUE, delay, 0, $sformatf("mid-dequeue, delay %0d", delay));
+      reset_case(REPLACE, delay, 0, $sformatf("mid-replace, delay %0d", delay));
+      // An enqueue on a full queue is refused, so make room first. ENQ_ENA=0
+      // DUTs have no enqueue datapath and a half-filled one sits behind the
+      // fill-before-read contract, so this arm is enqueue-capable builds only.
+      if (ENQ_ENA)
+        reset_case(ENQUEUE, delay, QUEUE_SIZE / 2, $sformatf("mid-enqueue, delay %0d", delay));
+    end
+  end
+endtask
+
+task automatic test_impolite();
+  begin
+    $display("\nTest Case 10: Commands the DUT says it will not accept");
+
+    // A dequeue on an empty queue. ENQ_ENA=1 boots all-zero; ENQ_ENA=0 boots
+    // physically full of '1 placeholders but logically empty and gates
+    // o_read_ready on the head not being one (F-1). Both must refuse the read.
+    apply_reset();
+    model_reset();
+    assert (!o_read_ready)
+    else begin error_count++; $error("Impolite: a freshly reset queue advertises data"); end
+    for (int i = 0; i < 3; i++) check_inert(1'b0, 1'b1, "dequeue on empty");
+    refill_and_drain_check("after dequeue-on-empty");
+
+    // An enqueue on a full queue. Only meaningful where !o_write_ready really
+    // means full -- see TB_TRACKS_FULL. An ENQ_ENA=0 DUT has no enqueue
+    // datapath, so the check is trivially true there and kept for uniformity.
+    if (`TB_TRACKS_FULL) begin
+      apply_reset();
+      model_reset();
+      refill_after_reset();
+      assert (!o_write_ready)
+      else begin error_count++; $error("Impolite: the queue did not fill, so enqueue-on-full is untested"); end
+      for (int i = 0; i < 3; i++) check_inert(1'b1, 1'b0, "enqueue on full");
+      // A clobbering enqueue leaves a valid-looking heap of the wrong contents,
+      // so drain the whole thing in order rather than reading the head.
+      for (int i = 0; i < QUEUE_SIZE; i++) begin
+        dequeue();
+        if (o_read_ready)
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Impolite: post enqueue-on-full drain step %0d -> expected %d, got %d", i, ref_queue[0], o_data); end
+        else
+          assert (o_data == '0)
+          else begin error_count++; $error("Impolite: post enqueue-on-full drain step %0d, now empty -> expected 0, got %d", i, o_data); end
+      end
+      assert (!o_read_ready)
+      else begin error_count++; $error("Impolite: queue did not empty after enqueue-on-full"); end
+    end
+  end
+endtask
+
+task automatic test_narrow_alphabet();
+  begin
+    $display("\nTest Case 11: Narrow payload alphabet (1..3)");
+    narrow_alphabet = 1;
+
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+
+    for (int i = 0; i < stress_test_iters; i++) begin
+      random_operation = ENQ_ENA ? $urandom_range(1, 3) : $urandom_range(2, 3);
+      case (random_operation)
+        ENQUEUE: begin
+          enqueue(rand_value());
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Narrow enqueue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+        end
+        DEQUEUE: begin
+          dequeue();
+          if (o_read_ready)
+            assert (o_data == ref_queue[0])
+            else begin error_count++; $error("Narrow dequeue: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+          else
+            assert (o_data == '0)
+            else begin error_count++; $error("Narrow dequeue: mismatch -> expected %d, got %d", '0, o_data); end
+        end
+        REPLACE: begin
+          replace(rand_value());
+          assert (o_data == ref_queue[0])
+          else begin error_count++; $error("Narrow replace: mismatch -> expected %d, got %d", ref_queue[0], o_data); end
+        end
+      endcase
+    end
+
+    // With three legal values the queue is mostly duplicates, so the ordered
+    // sequence is where a tie-breaking bug shows up rather than the head.
+    drain_and_compare("narrow alphabet");
+
+    narrow_alphabet = 0;
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
+task automatic test_ready_valid_master();
+  begin
+    $display("\nTest Case 12: Conventional ready/valid master");
+
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+    check_readies_independent("full");
+
+    for (int i = 0; i < stress_test_iters; i++) begin
+      // The model decides which command is legal, as everywhere else (F-2).
+      random_operation = ENQ_ENA ? $urandom_range(1, 3) : $urandom_range(2, 3);
+      if (random_operation == ENQUEUE && ref_queue_size == `TB_CAPACITY) random_operation = REPLACE;
+      if (random_operation == DEQUEUE && ref_queue_size == 0)            random_operation = REPLACE;
+
+      random_value = rand_value();
+      case (random_operation)
+        ENQUEUE: begin
+          master_op(ENQUEUE, random_value);
+          if (ENQ_ENA) begin
+            ref_queue[ref_queue_size] = random_value;
+            ref_queue_size++;
+            rsort();
+          end
+        end
+        DEQUEUE: begin
+          master_op(DEQUEUE, random_value);
+          for (int k = 0; k < ref_queue_size - 1; k++) ref_queue[k] = ref_queue[k+1];
+          ref_queue[ref_queue_size-1] = '0;
+          ref_queue_size--;
+        end
+        REPLACE: begin
+          master_op(REPLACE, random_value);
+          if (ref_queue_size == 0) begin
+            ref_queue[ref_queue_size] = random_value;
+            ref_queue_size++;
+          end else begin
+            ref_queue[0] = random_value;
+          end
+          rsort();
+        end
+      endcase
+
+      check_readies("after master op");
+      if (o_read_ready)
+        assert (o_data == ref_queue[0])
+        else begin error_count++; $error("Master op %0d: mismatch -> expected %d, got %d", random_operation, ref_queue[0], o_data); end
+
+      if (i % 20 == 0) check_readies_independent("mid-master");
+    end
+
+    drain_and_compare("after master traffic");
+    apply_reset();
+    model_reset();
+    refill_after_reset();
+  end
+endtask
+
+// Terminal drain phase, runs for both ENQ_ENA modes.// Terminal drain phase, runs for both ENQ_ENA modes. Empties the queue completely to
 // exercise the empty-state o_data branch and the replace-into-empty insert path, which
 // the fixed-length stress loop cannot reliably reach on the larger queues
 task automatic test_drain();
@@ -448,7 +991,7 @@ task automatic test_drain();
     assert (o_data == '0)
     else begin error_count++; $error("Drain: empty o_data should be 0, got %d", o_data); end
 
-    random_value = $urandom_range(1, 1023);
+    random_value = rand_value();
     replace(random_value);
     assert (o_read_ready)
     else begin error_count++; $error("Drain: replace on empty should insert (o_read_ready stayed low)"); end
@@ -475,6 +1018,14 @@ initial begin
 
   if (ENQ_ENA) test_enq_enabled();
   else         test_enq_disabled();
+
+  test_reset_midstream();
+
+  test_impolite();
+
+  test_narrow_alphabet();
+
+  test_ready_valid_master();
 
   test_drain();
 

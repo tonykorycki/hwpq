@@ -1,12 +1,20 @@
-# the formal tool proof: register_array, ENQ_ENA=0 (replace-only build)
+# the formal tool proof: register_tree_pipelined, ENQ_ENA=0 (replace-only build)
 #
 # Run from the REPO ROOT. Use formal/run.sh rather than invoking this directly.
 #
-# A SEPARATE RUN, NOT A VARIANT. Reset fills the array with all-ones while size
-# resets to 0 (register_array.sv:56-62), so the queue boots physically full but
-# logically empty and each replace evicts one placeholder. The reachable command
-# set differs too: there is no enqueue datapath, so a bare write is not a
-# command this build has.
+# A SEPARATE RUN, NOT A VARIANT. Reset fills every node with all-ones while size
+# resets to 0 (register_tree_pipelined.sv:75-83), so the tree boots physically
+# full but logically empty and each replace evicts one placeholder. There is no
+# enqueue datapath, so a bare write is not a command this build has.
+#
+# The sentinel idiom is duplicated verbatim from register_tree, so this is
+# expected to behave exactly like register_tree_enq0 -- including reproducing
+# F-1 when ASSUME_FILL_FIRST is dropped.
+#
+# Carries the timer-soundness lemma too, and it is worth having on THIS build
+# specifically: the reset fill is all-ones rather than zeros, so the heap
+# detector the timer is checked against starts from the opposite extreme.
+# register_tree_enq0 already proves the aux lemma under the same conditions.
 
 clear -all
 
@@ -17,9 +25,10 @@ if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED)
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
-    hwpq/register_array/src/register_array.sv
+    hwpq/register_tree_pipelined/src/register_tree_pipelined.sv
     formal/spec/hwpq_spec.sv
-    formal/bind/register_array_bind.sv
+    formal/spec/hwpq_tree_aux.sv
+    formal/bind/register_tree_pipelined_bind.sv
 }
 set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
@@ -37,8 +46,9 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # Same sizes as the ENQ_ENA=1 run; only the reset fill and the command set move.
-elaborate -top register_array \
-    -parameter QUEUE_SIZE 4 \
+# QUEUE_SIZE must be 2^k-1 for the tree designs.
+elaborate -top register_tree_pipelined \
+    -parameter QUEUE_SIZE 7 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    0
 
@@ -47,18 +57,18 @@ clock i_CLK
 reset ~i_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
-set HWPQ_MODULE        register_array_enq0
+set HWPQ_MODULE        register_tree_pipelined_enq0
 set HWPQ_ALLOW_BOUNDED 0
 
 # F-1 is assumed away, not recorded: ASSUME_FILL_FIRST in the spec constrains
 # this build to the initialisation convention its callers follow (fill the queue
-# before reading from it). That is hole CH-4 -- see formal/README.md. The cover
+# before reading from it). That is hole CH-4 -- see formal/FINDINGS.md. The cover
 # set is what proves the assumption did not strangle the design.
 # Ungated runs must reproduce EXACTLY these and nothing else. If one stops
 # firing the defect was fixed and the assumption should be retired; if a new
 # one appears, something regressed. Either way the run fails and says which.
-#   F-1: without ASSUME_FILL_FIRST the replace-only queue reports empty while
-#   still physically holding the payload, and advertises a placeholder as data.
+#   F-1: same mechanism as register_tree_enq0 -- the sentinel idiom is
+#   duplicated verbatim across the register designs.
 #   The TRACE behind those two changed when the head gate landed: they used to
 #   fire because the queue advertised a placeholder as data, and now fire because
 #   it holds an element during the fill phase that it will not admit to. Same two

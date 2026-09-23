@@ -5,15 +5,14 @@
 // here, all of them below the port list:
 //
 //   1. The BRAM contents at power-up. A formal tool ignores the `initial` block
-//      in rams_tdp_rf_rf.sv, so the memories start arbitrary and every ordering
-//      property would fail for reasons that say nothing about the design. The
-//      all-ones fill is assumed for cycle 0 only, in the proof driver; see the
-//      power-up fill note below for why it cannot live here.
+//      in rams_tdp_rf_rf.sv, so the memories start arbitrary. Nothing constrains
+//      them: the reset fill sequencer establishes the contents from any power-up
+//      state before the module advertises a ready, which a_no_ready_while_filling
+//      pins.
 //
-//   2. Whether a later reset restores that fill. It does not: bram_seq resets
-//      level_0 and level_1 but nothing rewrites the BRAMs. That is the reset
-//      defect, and a_reset_restores_fill is written to fail on it rather than to
-//      be assumed away.
+//   2. Whether a reset restores that fill. The `filling` sequencer rewrites the
+//      BRAMs on every reset, and a_reset_restores_fill is the acceptance test for
+//      it: the fill is intact by the time the sweep finishes.
 //
 //   3. Whether the out-of-range index expressions the tool warns about are ever
 //      actually reached. Elaboration only says the access MIGHT be out of bound;
@@ -79,22 +78,21 @@ module hwpq_bram_aux #(
   end
 
   // ---------------------------------------------------------------------------
-  // The power-up fill, assumed once
+  // The power-up fill is not assumed
   // ---------------------------------------------------------------------------
   //
-  // The assumption itself is NOT here: it applies at cycle 0 only, in the proof
-  // driver, because SVA cannot say that from inside a property. The obvious
-  // spec-side phrasing
+  // The memories are left entirely free. The reset fill sequencer establishes
+  // their contents before the module advertises a ready, so no assumption is
+  // needed and none is made. Do not add one: it would hide whether the sequencer
+  // works.
+  //
+  // A spec-side assumption could not express it in any case. The obvious
   //
   //     am_initial_fill : assume property (!i_init_RSTn |-> fill_intact);
   //
-  // is vacuous: the tool's initial state is already post-reset, so
-  // !i_init_RSTn is never true at an observed posedge and the assumption's
-  // precondition comes back UNREACHABLE. The memories stay free and every
-  // downstream property fails for reasons that say nothing about the design.
-  // Pinning cycle 0 and nothing after it is exactly the "first reset only"
-  // scoping this needs: a later reset stays free to expose that nothing
-  // restores the fill.
+  // is vacuous: the tool's initial state is already post-reset, so !i_init_RSTn
+  // is never true at an observed posedge and the precondition comes back
+  // UNREACHABLE, leaving the memories free anyway.
 
   // ---------------------------------------------------------------------------
   // The reset defect

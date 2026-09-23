@@ -3,11 +3,11 @@
 // Port-map explicitly rather than `.*`, and pass every parameter explicitly.
 //
 // This module breaks the pattern the first four shared. Read the ready
-// derivation before changing anything here (systolic_array.sv:81-83):
+// derivation before changing anything here (systolic_array.sv:89-90):
 //
 //   full          = size >= QUEUE_SIZE - 2
 //   empty         = size <= 0
-//   o_write_ready = !(size >= QUEUE_SIZE - 3) && (o_data != MIN_VALUE || empty)
+//   o_write_ready = !full && (o_data != MIN_VALUE || empty)
 //   o_read_ready  = !empty && (o_data != MIN_VALUE)
 //
 // Three consequences, each of which decides a parameter below.

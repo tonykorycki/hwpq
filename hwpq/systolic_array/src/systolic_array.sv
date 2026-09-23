@@ -37,7 +37,7 @@ module systolic_array #(
 
     // Output
     output var logic [DATA_WIDTH-1:0] o_data,    // Node data output
-    output var logic                  o_write_ready, // High if systolic is full
+    output var logic                  o_write_ready, // High if the array can accept a write
     output var logic                  o_read_ready
 
 );

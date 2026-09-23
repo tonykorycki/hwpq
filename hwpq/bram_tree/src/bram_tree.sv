@@ -28,8 +28,8 @@ module bram_tree #(
     input  logic                  i_read,   // Read/pop command
     input  logic [DATA_WIDTH-1:0] i_data,   // Input data
     // Outputs
-    output logic                  o_write_ready,   // High if the heap is full
-    output logic                  o_read_ready,  // High if the heap is empty
+    output logic                  o_write_ready,   // High if the heap can accept a write
+    output logic                  o_read_ready,  // High if the heap has data to read
     output logic [DATA_WIDTH-1:0] o_data   // Output data (Root node)
 );
 
@@ -173,7 +173,7 @@ module bram_tree #(
     both_children_inactive = !dout_a.active && !dout_b.active;
 
     if (filling) begin
-      // During the filling phase, the FSM is parked in IDLE and the BRAM is being written with intial values
+      // During the filling phase, the FSM is parked in IDLE and the BRAM is being written with initial values
       next_state     = IDLE;
       addr_a         = fill_cnt;
       we_a           = 1'b1;

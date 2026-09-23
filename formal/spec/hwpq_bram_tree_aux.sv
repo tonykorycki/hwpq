@@ -10,16 +10,15 @@
 // design rests on. Ordering and occupancy properties then fail for reasons that
 // say nothing about the design.
 //
-// SCOPED TO CYCLE 0, DELIBERATELY. The proof driver constrains the first cycle
-// and nothing after it. A LATER reset stays free, which is exactly what leaves
-// the "reset does not restore the memory" defect reachable. An assumption
-// phrased over every reset would hide it and look identical in the summary
-// table.
+// NOT ASSUMED. The memory is left free. The reset sweep rewrites every node
+// before the module advertises a ready, so arbitrary power-up contents are
+// harmless and no assumption is needed. Do not add one: it would hide whether
+// the sweep works.
 //
-// It cannot be written as an SVA assume: the tool's initial state is already
-// post-reset, so an antecedent predicated on the harness reset being low is
-// never true at an observed posedge and the precondition comes back UNREACHABLE
-// with the memories still free.
+// An SVA assume could not express it in any case: the tool's initial state is
+// already post-reset, so an antecedent predicated on the harness reset being low
+// is never true at an observed posedge and the precondition comes back
+// UNREACHABLE with the memories still free.
 module hwpq_bram_tree_aux #(
     parameter int QUEUE_SIZE    = 7,
     parameter int DATA_WIDTH    = 3,
@@ -69,19 +68,18 @@ module hwpq_bram_tree_aux #(
     end
   end
 
-  // Anti-vacuity: if this were never satisfiable the assume would strangle the
-  // design silently and every assert would prove for free.
+  // Anti-vacuity: fill_intact must be reachable, or a_reset_restores_fill below
+  // would hold for free.
   c_fill_intact_reachable : cover property (@(posedge i_CLK) fill_intact);
 
   // ---------------------------------------------------------------------------
   // The reset contract.
   //
-  // The power-up fill above pins the memory only at cycle 0, so a later reset
-  // leaves it free. That is deliberate: it is what makes this property able to
-  // fail. The BRAM has no reset port and its `initial` fill is simulation-only,
-  // so nothing restores the empty-tree contents. A reset arriving with data in
-  // the queue clears queue_size and top_level while every node keeps its stale
-  // `active` flag and stale `capacity`.
+  // The BRAM has no reset port and its `initial` fill is simulation-only, so the
+  // contents have to be rewritten in logic. Without that, a reset arriving with
+  // data in the queue clears queue_size and top_level while every node keeps its
+  // stale `active` flag and stale `capacity`. The reset sweep is what prevents
+  // it, and this property is the acceptance test for the sweep.
   //
   // PHRASING, and the two wrong ways to write this.
   //
@@ -100,9 +98,8 @@ module hwpq_bram_tree_aux #(
   // rewrites the memory cannot. Ask what PASSING would look like before keeping a
   // property that fails.
   //
-  // The first reset cannot expose the defect: the memory is pinned at cycle 0,
-  // so the fill is trivially intact there. It takes a LATER reset, after data has
-  // been written, which is what the cycle-0 scoping above leaves reachable.
+  // The case that matters is a reset arriving after data has been written: a
+  // design that never rewrites the memory fails there, a correct sweep does not.
   // `disable iff (!i_RSTn)` is load-bearing: without it a reset arriving during
   // the sweep restarts the fill while the obligation from the first $rose still
   // demands completion inside the original window, failing a design whose sweep

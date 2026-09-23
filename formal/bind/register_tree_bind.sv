@@ -18,7 +18,13 @@ bind register_tree hwpq_spec #(
     .ENQ_ENA    (ENQ_ENA),
     .HAS_BUSY   (1'b1),
     .MAX_SETTLE (SETTLE_MAX),
-    .HAS_FULL   (1'b1)
+    .HAS_FULL   (1'b1),
+`ifdef HWPQ_UNGATED
+    // run.sh --ungated: drop the workaround and reproduce the recorded defect.
+    .ASSUME_FILL_FIRST (1'b0)
+`else
+    .ASSUME_FILL_FIRST (1'b1)
+`endif
 ) u_spec (
     .i_CLK        (i_CLK),
     .i_RSTn       (i_RSTn),

@@ -46,3 +46,10 @@ obj_dir
 *.vcd
 
 build/
+
+# the formal tool formal scratch
+formal/fv_proj/
+formal/fv_proj_*/
+formal/*.log
+formal/*_summary.txt
+fv_proj/

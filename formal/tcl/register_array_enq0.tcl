@@ -37,14 +37,14 @@ analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # Same sizes as the ENQ_ENA=1 run; only the reset fill and the command set move.
-elaborate -top register_array \
+elaborate -top hwpq_rst_register_array \
     -parameter QUEUE_SIZE 4 \
     -parameter DATA_WIDTH 3 \
     -parameter ENQ_ENA    0
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
-reset ~i_RSTn
+reset ~i_init_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
 set HWPQ_MODULE        register_array_enq0

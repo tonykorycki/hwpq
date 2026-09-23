@@ -16,15 +16,15 @@
 # GATED vs UNGATED
 #
 # Some proofs hold only under an assumption that papers over a known, recorded
-# defect - ASSUME_FILL_FIRST for F-1, ASSUME_ENQ_WHEN_WREADY for F-7/F-8. The
-# default (gated) run applies them, so work on everything else can continue.
-# --ungated drops them and reproduces the defects.
+# defect. ASSUME_FILL_FIRST is the one such assumption in this suite. The default
+# (gated) run applies it, so work on everything else can continue; --ungated
+# drops it and reproduces the defect.
 #
-# Ungated is NOT "expect failure". Each config lists exactly which properties are
-# supposed to break (expect_cex_ungated), so the run still exits 0 if and only if
-# precisely those fail. A defect that gets FIXED therefore fails the ungated
-# run - "expected cex that did NOT fire" - which is the prompt to retire the
-# assumption. That makes the shortcomings a regression test rather than a
+# Ungated does not mean "expect failure". Each config lists which properties are
+# supposed to break (expect_cex_ungated), so the run exits 0 if and only if
+# precisely those fail. Fixing a defect therefore fails the ungated run with
+# "expected cex that did not fire", which is the prompt to retire the
+# assumption. That makes each shortcoming a regression test rather than a
 # footnote.
 #
 # Everything a run generates - tool scratch, console log, property summary -
@@ -35,10 +35,9 @@
 #
 # BACKEND
 #
-# No tool is named in this repository. FORMAL_BACKEND selects one of
-# formal/backend/<name>.sh; see formal/backend/README.md. The licence-free
-# `stub` and `dryrun` backends ship with the repo, so --all is runnable
-# anywhere; a backend for a real tool is written locally and never committed.
+# Most formal tools should be compatible with this driver. FORMAL_BACKEND selects
+# one of formal/backend/<name>.sh; see formal/backend/README.md. 
+# The licence-free stub and dryrun backends ship with the repo, so --all is runnable anywhere.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,10 +51,7 @@ MODULES=()
 # Wall-clock ceiling per configuration, seconds. A proof that has not finished by
 # now is not going to: these runs are dominated by finding cover witnesses, and a
 # cover whose witness is hundreds of cycles deep does not converge at all rather
-# than converging slowly. Without a ceiling that failure mode is silent -- one
-# mis-sized configuration ran 4.7 hours and wrote a 212 MB log before anyone
-# noticed it was not making progress. 1800 s is roughly 6x the slowest run that
-# does converge (register_tree, 281 s). Override with --timeout <seconds>.
+# than converging slowly. Override with --timeout <seconds>.
 TIMEOUT="${HWPQ_TIMEOUT:-1800}"
 
 while [ $# -gt 0 ]; do
@@ -78,10 +74,9 @@ if [ "${#MODULES[@]}" -eq 0 ]; then
   exit 2
 fi
 
-# A real tool's backend is never committed, so it is absent from every git
-# worktree regress.sh builds. FORMAL_BACKEND_DIR lets it live anywhere -- this
-# checkout, or outside the repository -- and is exported so drive.tcl sources the
-# Tcl half from the same place.
+# A real backend is local-only (formal/backend/README.md), so it is absent
+# from every git worktree regress.sh builds. FORMAL_BACKEND_DIR lets it live
+# anywhere, exported so drive.tcl sources the Tcl half from the same place.
 want_dir="${FORMAL_BACKEND_DIR:-${REPO_ROOT}/formal/backend}"
 if ! FORMAL_BACKEND_DIR="$(cd "$want_dir" 2>/dev/null && pwd)"; then
   echo "ERROR: FORMAL_BACKEND_DIR does not exist: ${want_dir}" >&2
@@ -104,7 +99,7 @@ pick_backend() {
 BACKEND="${FORMAL_BACKEND:-}"
 if [ -z "$BACKEND" ]; then
   # Autodetect among REAL tools only. stub and dryrun prove nothing, and picking
-  # one silently turns "no tool here" into a green run -- which is how a self-test
+  # one silently turns "no tool here" into a green run, which is how a self-test
   # once passed against an empty property table. They run only when named.
   for cand in $(backend_names | grep -vxE 'stub|dryrun'); do
     if pick_backend "$cand"; then BACKEND="$cand"; break; fi
@@ -129,7 +124,7 @@ else
   fi
 fi
 case "$BACKEND" in
-  stub|dryrun) echo "backend: ${BACKEND}   (licence-free -- PROVES NOTHING about the design)" ;;
+  stub|dryrun) echo "backend: ${BACKEND}   (licence-free: PROVES NOTHING about the design)" ;;
   *)           echo "backend: ${BACKEND}" ;;
 esac
 
@@ -182,7 +177,7 @@ for m in "${MODULES[@]}"; do
 
   # 124 is timeout(1) reporting that it had to kill the run.
   if [ "$rc" -eq 124 ]; then
-    echo "==> ${m}: TIMEOUT after ${TIMEOUT}s -- the proof did not converge." >&2
+    echo "==> ${m}: TIMEOUT after ${TIMEOUT}s: the proof did not converge." >&2
     echo "    This is a sizing problem, not a proof failure. Check the cover set" >&2
     echo "    for a witness that is hundreds of cycles deep, and shrink" >&2
     echo "    QUEUE_SIZE before raising --timeout." >&2
@@ -202,11 +197,11 @@ for m in "${MODULES[@]}"; do
       if [ "$rc" -ne 1 ]; then
         why="expected exit 1, got ${rc}"
       elif [ -z "$st_verdict" ]; then
-        why="exit 1, but no property table -- the run failed before proving"
+        why="exit 1, but no property table: the run failed before proving"
       else
         why="exit 1, but a_selftest_must_fail is not among the counterexamples"
       fi
-      echo "==> ${m}: self-test FAILED -- ${why}." >&2
+      echo "==> ${m}: self-test FAILED: ${why}." >&2
       echo "    The harness has not shown it can report a failure. Do not trust any" >&2
       echo "    green run until this is fixed. Read ${log}" >&2
       overall=1
@@ -214,19 +209,19 @@ for m in "${MODULES[@]}"; do
   else
     case "$rc" in
       0) if [ "$UNGATED" -eq 1 ]; then
-           echo "==> ${m}: PASS (ungated -- recorded shortcomings reproduced exactly)"
+           echo "==> ${m}: PASS (ungated: recorded shortcomings reproduced exactly)"
          else
            echo "==> ${m}: PASS"
          fi ;;
       1) if [ "$UNGATED" -eq 1 ]; then
-           echo "==> ${m}: FAIL (ungated -- the set of failures changed; either a" >&2
+           echo "==> ${m}: FAIL (ungated: the set of failures changed; either a" >&2
            echo "    defect was fixed and its assumption should be retired, or a" >&2
            echo "    new one appeared. Read ${log})" >&2
          else
-           echo "==> ${m}: FAIL (proof failure -- read ${log})"
+           echo "==> ${m}: FAIL (proof failure: read ${log})"
          fi
          overall=1 ;;
-      *) echo "==> ${m}: SCRIPT ERROR (exit ${rc} -- read ${log})"; overall=2 ;;
+      *) echo "==> ${m}: SCRIPT ERROR (exit ${rc}: read ${log})"; overall=2 ;;
     esac
   fi
   echo

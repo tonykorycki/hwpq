@@ -1,6 +1,5 @@
 /*******************************************************************************
   Module Name: pipelined_bram_tree
-  Date: 2025/03/20
   Description: A pipelined BRAM-based max-heap tree used as the sub-tree
                building block of the hybrid_tree architecture. Levels beyond
                the register-backed top are stored in block RAM, with an index

@@ -1,28 +1,22 @@
-// Attaches hwpq_spec and hwpq_bram_aux to bram_tree_pipelined
+// Attaches hwpq_spec and hwpq_bram_aux to bram_tree_pipelined.
 //
-// Port-map explicitly rather than `.*`, and pass every parameter explicitly.
+// Port-map and parameters are written out explicitly rather than with `.*`.
 //
 // HAS_BUSY=1: sift_done drops for the whole walk, so both readies can be low
-// together and the settle contract is real.
+// together and the settle contract applies.
 //
-// HAS_FULL=0, CAPACITY=QUEUE_SIZE: these answer different questions and here
-// they land on different answers, which is the F-10 lesson rather than the F-10
-// trap. The module has no enqueue datapath at all -- the word "full" does not
-// occur in the source -- and no command it accepts has fullness as a
-// precondition, since a replace on a populated queue is size-neutral. So
-// o_write_ready = sift_done reports quiescence and never capacity, and
-// !o_write_ready genuinely does not mean full. Capacity is still QUEUE_SIZE,
-// reached by evicting every placeholder, so a_occ_bounded stays meaningful.
-// hwpq_bram_aux states what the port does mean (a_wready_is_quiescence) and
-// recovers the two covers HAS_FULL=0 drops, so nothing goes silently missing.
+// HAS_FULL=0 with CAPACITY=QUEUE_SIZE. The module has no enqueue datapath, and
+// no command it accepts has fullness as a precondition, since a replace on a
+// populated queue is size-neutral. o_write_ready is sift_done, so it reports
+// quiescence and never capacity: !o_write_ready does not mean full. Capacity is
+// still QUEUE_SIZE, reached by evicting every placeholder, which keeps
+// a_occ_bounded meaningful. hwpq_bram_aux states what the port does mean
+// (a_wready_is_quiescence) and carries the two covers HAS_FULL=0 drops.
 //
-// MAX_SETTLE=14: TRANSCRIBED, not read from the design. The structure gives
-// 4*TREE_DEPTH + 2 -- four cycles per level plus accept and return -- which is 14
-// at QUEUE_SIZE=7 (and 18 at the QUEUE_SIZE=15 the testbench runs, where the
-// simulation log records a dequeue maximum of 18 and a minimum of 6 = 4*1 + 2).
-// No localparam holds it, so unlike register_tree's
-// SETTLE_MAX this number cannot track the design if the walk changes. Flagged
-// the way F-4 flags the tree timers.
+// MAX_SETTLE=14 is hand-derived, not read from the design: no localparam holds
+// it, so it does not track QUEUE_SIZE. The walk costs four cycles per level plus
+// accept and return (4*TREE_DEPTH+2 = 14 at QUEUE_SIZE=7). Re-derive it when the
+// walk structure or QUEUE_SIZE changes.
 bind bram_tree_pipelined hwpq_spec #(
     .QUEUE_SIZE (QUEUE_SIZE),
     .DATA_WIDTH (DATA_WIDTH),
@@ -49,10 +43,10 @@ bind bram_tree_pipelined hwpq_spec #(
 );
 
 
-// The white-box addendum binds to the HARNESS, not to the DUT: it needs
-// i_init_RSTn to tell the first reset from a later one, and that only exists one
-// level up. Everything from the design arrives by hierarchical reference through
-// these port connections.
+// The white-box addendum binds to the harness rather than the DUT: it needs
+// i_init_RSTn to tell the first reset from a later one, and that signal exists
+// only one level up. Everything from the design arrives by hierarchical
+// reference through these port connections.
 bind hwpq_rst_bram_tree_pipelined hwpq_bram_aux #(
     .QUEUE_SIZE   (QUEUE_SIZE),
     .DATA_WIDTH   (DATA_WIDTH),
@@ -80,18 +74,14 @@ bind hwpq_rst_bram_tree_pipelined hwpq_bram_aux #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs.
+// Reset harness: the elaboration top for this module's proofs. The tool holds
+// the declared reset inactive after init; declaring i_init_RSTn keeps the DUT's
+// i_RSTn free for mid-operation resets, which is what makes a second reset
+// reachable at all.
 //
-// the tool's `reset` takes a SIMPLE PIN constraint (compound expressions are
-// rejected, a tool diagnostic) and pins it inactive for all time after initialisation, so
-// `reset ~i_RSTn` makes a second reset unreachable (F-14). Driving the DUT from
-// (i_init_RSTn & i_RSTn) moves the pinning onto i_init_RSTn and leaves i_RSTn
-// free. It matters more here than anywhere else: the whole reset defect this
-// module is being proved for is only reachable once a second reset is.
-//
-// It lives in this file rather than its own because bind/ is already the
-// per-module formal glue. The binds above are unaffected: the spec targets the
-// module TYPE, so it still attaches to u_dut.
+// It lives in this file because bind/ already holds the per-module formal glue.
+// The binds above are unaffected: the spec targets the module type, so it still
+// attaches to u_dut.
 module hwpq_rst_bram_tree_pipelined #(
     parameter int QUEUE_SIZE = 15,
     parameter int DATA_WIDTH = 3

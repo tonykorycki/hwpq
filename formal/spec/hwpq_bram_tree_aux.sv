@@ -1,31 +1,24 @@
 // White-box addendum for bram_tree: the power-up contents of the node memory.
 //
 // WHY THIS EXISTS. The BRAM has no reset port, and the `initial` block in
-// rams_tdp_rf_rf.sv that lays down the empty-tree fill is simulation-only --
-// the tool says so on every run:
-//
-//     [WARN (a tool diagnostic)] rams_tdp_rf_rf.sv(46): 'initial' construct is ignored
+// rams_tdp_rf_rf.sv that lays down the empty-tree fill is simulation-only; a
+// formal tool ignores it on every run.
 //
 // Without an assumption the memory therefore starts ARBITRARY: arbitrary
-// `active` flags, arbitrary values, and -- worst of all for this module --
+// `active` flags, arbitrary values, and, worst of all for this module,
 // arbitrary `capacity` fields, which carry the free-space accounting the whole
 // design rests on. Ordering and occupancy properties then fail for reasons that
-// say nothing about the design. This is hole CH-6, in bram_tree's own instance.
+// say nothing about the design.
 //
-// SCOPED TO CYCLE 0, DELIBERATELY. The tcl applies it as
+// NOT ASSUMED. The memory is left free. The reset sweep rewrites every node
+// before the module advertises a ready, so arbitrary power-up contents are
+// harmless and no assumption is needed. Do not add one: it would hide whether
+// the sweep works.
 //
-//     backend::assume_bound 1 {u_bram_aux.fill_intact}
-//
-// which constrains the first cycle and nothing after it. A LATER reset stays
-// free, which is exactly what leaves the "reset does not restore the memory"
-// defect reachable. An assumption phrased over every reset would hide it and
-// look identical in the summary table -- that is how F-25 was found on
-// bram_tree_pipelined, and the same trap is set here.
-//
-// It cannot be written as an SVA assume: the tool's initial state is already
-// post-reset, so an antecedent predicated on the harness reset being low is
-// never true at an observed posedge and the precondition comes back UNREACHABLE
-// with the memories still free.
+// An SVA assume could not express it in any case: the tool's initial state is
+// already post-reset, so an antecedent predicated on the harness reset being low
+// is never true at an observed posedge and the precondition comes back
+// UNREACHABLE with the memories still free.
 module hwpq_bram_tree_aux #(
     parameter int QUEUE_SIZE    = 7,
     parameter int DATA_WIDTH    = 3,
@@ -75,30 +68,29 @@ module hwpq_bram_tree_aux #(
     end
   end
 
-  // Anti-vacuity: if this were never satisfiable the assume would strangle the
-  // design silently and every assert would prove for free.
+  // Anti-vacuity: fill_intact must be reachable, or a_reset_restores_fill below
+  // would hold for free.
   c_fill_intact_reachable : cover property (@(posedge i_CLK) fill_intact);
 
   // ---------------------------------------------------------------------------
-  // THE RESET CONTRACT -- the property this module never had.
+  // The reset contract.
   //
-  // CH-6 pins the memory only at cycle 0, so a LATER reset leaves it free. That
-  // is deliberate: it is what makes this property able to fail. The BRAM has no
-  // reset port and its `initial` fill is simulation-only (a tool diagnostic), so nothing
-  // restores the empty-tree contents. A reset arriving with data in the queue
-  // clears queue_size and top_level while every node keeps its stale `active`
-  // flag and stale `capacity`.
+  // The BRAM has no reset port and its `initial` fill is simulation-only, so the
+  // contents have to be rewritten in logic. Without that, a reset arriving with
+  // data in the queue clears queue_size and top_level while every node keeps its
+  // stale `active` flag and stale `capacity`. The reset sweep is what prevents
+  // it, and this property is the acceptance test for the sweep.
   //
   // PHRASING, and the two wrong ways to write this.
   //
-  //   `!i_RSTn |=> fill_intact` is F-20: no BRAM-backed design can clear a memory
-  //   in one cycle, so it stays red against a correct fix and is useless as an
-  //   acceptance test.
+  //   `!i_RSTn |=> fill_intact` demands the whole memory clear in one cycle: no
+  //   BRAM-backed design can do that, so it stays red against a correct fix and
+  //   is useless as an acceptance test.
   //
-  //   `idle && no command |-> fill_intact` is worse, and was committed here for
-  //   one run before being caught. It says the memory is empty whenever the queue
-  //   is idle -- which is FALSE for any correct design holding data. It failed at
-  //   4 cycles for exactly that reason: a populated queue, behaving correctly.
+  //   `idle && no command |-> fill_intact` is worse. It says the memory is empty
+  //   whenever the queue is idle, which is FALSE for any correct design
+  //   holding data, and fails immediately for exactly that reason: a populated
+  //   queue, behaving correctly.
   //
   // The satisfiable form is a BOUNDED RESPONSE to reset deassertion: within
   // NODES_NEEDED+2 cycles of the reset releasing, the fill is back. A sweep that
@@ -106,46 +98,33 @@ module hwpq_bram_tree_aux #(
   // rewrites the memory cannot. Ask what PASSING would look like before keeping a
   // property that fails.
   //
-  // The first reset cannot expose the defect -- CH-6 pins the memory at cycle 0,
-  // so the fill is trivially intact there. It takes a LATER reset, after data has
-  // been written, which is precisely what CH-6's cycle-0 scoping leaves reachable.
-  // `disable iff (!i_RSTn)` is load-bearing, and omitting it cost one run. Without
-  // it a reset arriving DURING the sweep restarts the fill, while the obligation
-  // from the first $rose still demands completion inside the original window --
-  // so the property failed at 39 cycles on a design whose sweep is correct. The
-  // guard aborts a pending obligation when a new reset lands, which is the
-  // standard idiom and what every property in hwpq_spec.sv already does.
+  // The case that matters is a reset arriving after data has been written: a
+  // design that never rewrites the memory fails there, a correct sweep does not.
+  // `disable iff (!i_RSTn)` is load-bearing: without it a reset arriving during
+  // the sweep restarts the fill while the obligation from the first $rose still
+  // demands completion inside the original window, failing a design whose sweep
+  // is correct. The guard aborts a pending obligation when a new reset lands.
   //
-  // WHAT PASSING LOOKS LIKE: the sweep writes one node per cycle for
-  // NODES_NEEDED cycles, so fill_intact holds by NODES_NEEDED+1 after the reset
-  // releases -- comfortably inside the window, with no reset interrupting.
+  // The sweep writes one node per cycle for NODES_NEEDED cycles, so fill_intact
+  // holds by NODES_NEEDED+1 after the reset releases, inside the window.
   a_reset_restores_fill : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       $rose(i_RSTn) |-> ##[1:NODES_NEEDED+2] fill_intact);
 
   // ---------------------------------------------------------------------------
-  // THE ROOT CAPACITY INVARIANT.
+  // Root capacity invariant.
   //
-  // Written to DECIDE a question rather than to record an answer. The replace
-  // arm computes `top_level.capacity + 1` on an empty queue, where capacity is
-  // QUEUE_SIZE and the field is ADDRESS_WIDTH bits -- 7 + 1 truncates to 0. The
-  // direction is also the dequeue arm's, where an element LEAVES and free space
-  // grows, whereas a replace on an empty queue INSERTS one. Both look wrong on
-  // inspection.
+  // `capacity` is a per-node count of free slots in the subtree rooted at that
+  // node. The root's subtree is the whole tree, so at idle its count equals total
+  // free space. This cross-checks the distributed ledger the enqueue descent
+  // maintains against the scalar queue_size counter, which a separate path
+  // maintains: two independent accountings of one quantity.
   //
-  // But inspection is not evidence, and the full spec proves green with that code
-  // in place, so the question is whether anything observable depends on it. The
-  // field is NOT dead: top_capacity seeds curr.capacity, which is written into
-  // din_*.capacity, stored, and read back as dout_*.capacity -- which gates every
-  // arm of the enqueue descent. So a corrupt value has a live path.
-  //
-  // WHAT PASSING LOOKS LIKE: when the design is idle, the root's free-space count
-  // is exactly the space that is free -- QUEUE_SIZE minus the number of elements
-  // held. Reset gives 7 == 7-0; an enqueue into an empty queue gives 6 == 7-1. A
-  // correct design maintains it at every idle point.
-  //
-  // If this FAILS, the replace-on-empty arithmetic is a real defect and gets the
-  // property/fix/retire treatment. If it PROVES, the code is merely odd and the
-  // fix should be dropped rather than carried on the strength of a code reading.
+  // The field is live, not dead: top_capacity seeds curr.capacity, which is
+  // written into din_*.capacity, stored, and read back as dout_*.capacity, which
+  // gates every arm of the enqueue descent. Nothing on the interface reads it, so
+  // a corrupt value is invisible to every black-box property and this assert is
+  // the only detector.
+  // ---------------------------------------------------------------------------
   a_root_capacity_agrees : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       fsm_idle |-> (top_capacity == ADDRESS_WIDTH'(QUEUE_SIZE - queue_size)));
 

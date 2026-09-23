@@ -2,15 +2,12 @@
 
 /*******************************************************************************
   Module Name: systolic_array
-  Date: 2026/06/18
   Description: A priority queue implementation using a systolic array of an
                input buffer (IB) and output buffer (OB). New nodes shift
                through the IB, swapping bubble-sort style with adjacent OB
                nodes so higher-priority values migrate into the
                OB; dequeuing the OB head propagates a "bubble" back through
-               the array to refill it. The module reserves MIN_VALUE to
-               represent an invalid entry, which is reflected in the test
-               benches avoiding writing 0.
+               the array to refill it.
   Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
               DATA_WIDTH - Bit width of the node's evaluation value (f)
   Inputs: i_CLK - System clock
@@ -21,18 +18,10 @@
   Outputs: o_write_ready - High when the queue has room to accept a write
            o_read_ready - High when the queue holds data available to read
            o_data - Node data output (highest priority element)
-  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
-           slot and the dequeue mechanism (write it into the head and let the
-           sort network sink it); all-ones is the max-priority placeholder an
-           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
-           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
-           so one rule covers the whole library. Behaviour when they ARE driven
-           is outside the supported input range.
+  Constraints: MIN_VALUE ('0) is the reserved empty marker, never legal on
+               i_data. Two of QUEUE_SIZE elements are held back as
+               shift-chain margin, so the array holds QUEUE_SIZE-2.
 *******************************************************************************/
-
-`default_nettype none
-
-// this module cannot use the MIN_VALUE, we treat the MIN_VALUE as an invalid
 
 module systolic_array #(
     parameter int QUEUE_SIZE = 128,  // Size of the buffers (number of positions)
@@ -48,7 +37,7 @@ module systolic_array #(
 
     // Output
     output var logic [DATA_WIDTH-1:0] o_data,    // Node data output
-    output var logic                  o_write_ready, // High if systolic is full
+    output var logic                  o_write_ready, // High if the array can accept a write
     output var logic                  o_read_ready
 
 );
@@ -83,19 +72,13 @@ module systolic_array #(
 
   assign full  = (size >= QUEUE_SIZE - 2);
   assign empty = (size <= 0);
-  // Does this cycle actually write IB[0]? The enqueue datapath below refuses a
-  // write when full, but the sorting network used to react to raw i_wrt and so
-  // performed the write's side effects anyway - injecting i_data into IB[0] and
-  // suppressing the clear that would have vacated it. A refused command has to
-  // be inert. Mirrors the datapath exactly: replace writes IB[0] regardless of
-  // full, a bare enqueue only when !full.
+  // Does this cycle actually write IB[0]? The sorting network must not perform the
+  // write's side effects (injecting i_data into IB[0], suppressing its clear) for a
+  // command the enqueue datapath refuses. Mirrors the datapath exactly: replace
+  // writes IB[0] regardless of full, a bare enqueue only when !full.
   wire writing_ib0 = i_wrt && (i_read || !full);
   assign o_data  = OB[0];
-  // Derived from `full` rather than from its own threshold, so the two cannot
-  // drift apart. They used to: o_write_ready stopped advertising room at
-  // QUEUE_SIZE-3 while the enqueue path kept accepting until QUEUE_SIZE-2, so a
-  // caller honouring the ready lost a usable slot for nothing, and a caller
-  // ignoring it hit a window the queue had said was closed.
+  // Derived from `full` rather than its own threshold, so the two cannot drift apart.
   //
   // The two reserved slots are what keeps the shift network able to move:
   // IB_shift_valid is anchored on the last IB slot being MIN_VALUE, and with
@@ -103,7 +86,7 @@ module systolic_array #(
   //
   // The second term holds the ready low while a MIN_VALUE bubble sits at the
   // head after a read - that is the busy state, not a capacity limit.
-  assign o_write_ready = !full && (o_data != MIN_VALUE || empty); 
+  assign o_write_ready = !full && (o_data != MIN_VALUE || empty);
   assign o_read_ready = !empty && (o_data != MIN_VALUE);
 
   // Sequential logic

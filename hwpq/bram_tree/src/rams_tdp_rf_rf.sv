@@ -1,13 +1,7 @@
-// Dual-Port Block RAM with Two Write Ports
-// File: rams_tdp_rf_rf.v
-//
-// Parameterized 2026-08-30 alongside bram_tree. It used to `import bram_tree_pkg`
-// for its widths and carry bram_tree_mem_t on its ports; once QUEUE_SIZE and
-// DATA_WIDTH became module parameters the struct became module-local, so this
-// model takes plain packed vectors and is told the field widths it needs.
-//
-// CAP_WIDTH is needed only by the power-up fill below, which has to place the
-// per-node capacity in the low field of the word.
+// Dual-port block RAM with two write ports. Takes plain packed vectors and the
+// field widths it needs, since the caller's struct type is module-local once its
+// widths are parameters. CAP_WIDTH sizes the capacity field the power-up fill
+// below writes into the low bits of each word.
 
 (* ram_style = "block"*)
 module rams_tdp_rf_rf #(
@@ -31,10 +25,9 @@ module rams_tdp_rf_rf #(
   logic [WIDTH-1:0] ram [DEPTH-1:0];
 
   // Power-up contents: every node inactive, value zero, capacity set to the size
-  // of the subtree it roots. SIMULATION ONLY -- synthesis takes this as a
-  // bitstream init value and a formal tool ignores it outright (a tool diagnostic), so
-  // nothing restores it on a reset. The high (WIDTH-CAP_WIDTH) bits are the
-  // `active` flag and the value field, both zero.
+  // of the subtree it roots. Simulation only: synthesis takes this as a
+  // bitstream init value, and nothing restores it on a reset. The high
+  // (WIDTH-CAP_WIDTH) bits are the `active` flag and the value field, both zero.
   initial begin
     int level;
     int node_capacity;
@@ -46,26 +39,19 @@ module rams_tdp_rf_rf #(
   end
 
   // Both write ports drive `ram` from a SINGLE process. Splitting them across two
-  // always blocks -- as the vendor template does, and as this file used to --
-  // makes every bit of the array multiply driven:
+  // always blocks, as a vendor RAM template typically does, makes every bit of the
+  // array multiply driven. Simulation is unaffected, because the two ports write
+  // different addresses and the non-blocking assignments land on different
+  // elements, but a formal tool has to resolve the drivers instead and writes
+  // become unreliably observable in the array: a write to address 0 need not be
+  // there on the next cycle, and every memory-dependent property is proved against
+  // that.
   //
-  //   [WARN (a tool diagnostic)] rams_tdp_rf_rf.sv(53): net 'ram[6][6]' is constantly
-  //                     driven from multiple places
-  //   INFO (a tool diagnostic): Number of multiple-driven bits in design: 49
-  //
-  // (49 = DEPTH x WIDTH at DATA_WIDTH=3, i.e. all of it.) Simulation is
-  // unaffected, because the two ports write different addresses and the
-  // non-blocking assignments land on different elements. A formal tool has to
-  // resolve the drivers instead, and the result is that writes are not reliably
-  // observable in the array -- a write to address 0 need not be there on the next
-  // cycle. Every memory-dependent property would be proved against that.
-  //
-  // This is the same defect as F-21, in bram_tree's own copy of the file. It is
-  // fixed here the same way: merging is sound because bram_tree ties clka and
-  // clkb to i_CLK, and a genuinely dual-clock instance would need a different
-  // model. The read paths stay per-port and per-clock, and read-first ordering is
-  // preserved -- the outputs still sample `ram` before this cycle's writes land,
-  // because every assignment here is non-blocking.
+  // Merging is sound because bram_tree ties clka and clkb to i_CLK; a genuinely
+  // dual-clock instance would need a different model. The read paths stay
+  // per-port and per-clock, and read-first ordering is preserved: the outputs
+  // still sample `ram` before this cycle's writes land, because every assignment
+  // here is non-blocking.
   always @(posedge clka) begin
     if (ena && wea) ram[addra] <= dia;
     if (enb && web) ram[addrb] <= dib;

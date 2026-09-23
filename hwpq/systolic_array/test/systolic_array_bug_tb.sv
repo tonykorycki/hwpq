@@ -1,4 +1,4 @@
-module systolic_array_tb;
+module systolic_array_bug_tb;
   // Parameters matching the module under test
   parameter int QUEUE_SIZE = 8;
   parameter int DATA_WIDTH = 16;

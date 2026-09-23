@@ -61,6 +61,7 @@ set cfg(expect_cex_selftest) {}
 
 set fh [open $HWPQ_CFG r]
 set lineno 0
+array set seen {}
 foreach line [split [read $fh] "\n"] {
     incr lineno
     set line [string trim $line]
@@ -72,6 +73,13 @@ foreach line [split [read $fh] "\n"] {
         param   { lappend cfg_params [lindex $val 0] [lindex $val 1] }
         top - clock - reset - module - allow_bounded -
         expect_cex - expect_cex_ungated - expect_cex_selftest {
+            if {[info exists seen($key)]} {
+                puts "FORMAL ERROR: ${HWPQ_CFG}:${lineno}: '$key' given twice\
+                      (first at line $seen($key)); a silent overwrite would change\
+                      what is proved"
+                exit 2
+            }
+            set seen($key) $lineno
             set cfg($key) $val
         }
         default {

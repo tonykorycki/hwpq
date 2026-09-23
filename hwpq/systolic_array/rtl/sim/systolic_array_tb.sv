@@ -51,6 +51,8 @@ module systolic_array_tb;
   // Clock generation: 10ns period
   always #5 CLK <= ~CLK;
 
+  int error_count = 0;
+
   initial begin
     // Initialize signals
     CLK = 0;
@@ -79,10 +81,10 @@ module systolic_array_tb;
       dequeue();
       if (!o_empty) begin
         assert (o_data == ref_queue[0])
-        else $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
       end else begin
         assert (o_data == '0)
-        else $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data);
+        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
       end
     end
 
@@ -93,7 +95,7 @@ module systolic_array_tb;
       random_value = $urandom_range(0, 1024);
       enqueue(random_value);
       assert (o_data == ref_queue[0])
-      else $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+      else begin error_count++; $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
     end
 
     // Test Case 3: Replace nodes
@@ -103,7 +105,7 @@ module systolic_array_tb;
       random_value = $urandom_range(0, 1024);
       replace(random_value);
       assert (o_data == ref_queue[0])
-      else $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+      else begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
     end
 
     // Test Case 4: Stress Test
@@ -112,13 +114,13 @@ module systolic_array_tb;
     $display("\nTest Case 4: Stress Test");
     for (int i = 0; i < 100; i++) begin
       random_value = $urandom_range(0, 1024);
-      random_operation = t_operation'($urandom_range(1,3));
+      random_operation = t_operation'($urandom_range(1, 3));  
       case (random_operation)
         ENQUEUE: begin
           enqueue(random_value);
           assert (o_data == ref_queue[0])
           else
-            $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+            begin error_count++; $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         end
 
         DEQUEUE: begin
@@ -126,10 +128,10 @@ module systolic_array_tb;
           if (!o_empty) begin
             assert (o_data == ref_queue[0])
             else
-              $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+              begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
           end else begin
             assert (o_data == '0)
-            else $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data);
+            else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
           end
         end
 
@@ -137,7 +139,7 @@ module systolic_array_tb;
           replace(random_value);
           assert (o_data == ref_queue[0])
           else
-            $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+            begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         end
 
         default: begin
@@ -146,8 +148,13 @@ module systolic_array_tb;
       endcase
     end
 
-    $display("\nTest completed! ");
-    $finish;
+    if (error_count == 0) begin
+      $display("\nTest completed!");
+      $finish;
+    end else begin
+      $display("\n%0d error(s) detected during simulation.", error_count);
+      $fatal(1, "Test FAILED with %0d error(s).", error_count);
+    end
   end
 
   // Task to write to the end of the queue

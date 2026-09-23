@@ -1,5 +1,25 @@
 `default_nettype none
 
+/*******************************************************************************
+  Module Name: register_tree_pipelined
+  Date: 2026/06/21
+  Description: A pipelined version of the register tree architecture that
+               divides the compare-and-swap logic between clock cycles to
+               reduce combinational path length, at the cost of enqueue
+               taking two cycles to propagate a new entry into place.
+  Parameters: ENQ_ENA - Enables the enqueue datapath when set
+              QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue/replace operation)
+          i_read - Read/pop command (dequeue/replace operation)
+          i_data - Input data to be enqueued (or used for replace)
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 module register_tree_pipelined #(
     parameter bit ENQ_ENA = 1,
     parameter int QUEUE_SIZE = 15,

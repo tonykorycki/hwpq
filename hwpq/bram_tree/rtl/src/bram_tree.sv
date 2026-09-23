@@ -1,3 +1,21 @@
+/*******************************************************************************
+  Module Name: bram_tree
+  Date: 2025/03/05
+  Description: A priority queue implementation using a binary max-heap structure
+               stored in block RAM (BRAM). Supports enqueue, dequeue, and replace
+               operations.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: CLK - System clock
+          RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be enqueued
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 package bram_tree_pkg;
   localparam integer DATA_WIDTH = 16;
   localparam integer QUEUE_SIZE = 7;

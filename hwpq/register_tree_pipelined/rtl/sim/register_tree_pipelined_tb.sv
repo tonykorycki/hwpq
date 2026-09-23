@@ -117,6 +117,8 @@ module register_tree_pipelined_tb;
   // Clock generation: 10ns period
   always #5 CLK <= ~CLK;
 
+  int error_count = 0;
+
   initial begin
     // Initialize signals
     CLK = 0;
@@ -147,7 +149,7 @@ module register_tree_pipelined_tb;
       enqueue(random_value);
     end
     assert (o_full)
-    else $error("The queue should be filled by the intialization!");
+    else begin error_count++; $error("The queue should be filled by the intialization!"); end;
 
     // Test Case 1: Dequeue nodes with ENQ_ENA enabled
     $display("\nTest Case 1: Dequeue Test (ENQ_ENA enabled)");
@@ -156,10 +158,10 @@ module register_tree_pipelined_tb;
       if (!o_empty) begin
         assert (o_data == ref_queue_enq_1[0])
         else
-          $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data);
+          begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
       end else begin
         assert (o_data == '0)
-        else $error("Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data);
+        else begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data); end;
       end
     end
 
@@ -170,10 +172,10 @@ module register_tree_pipelined_tb;
       enqueue(random_value);
       assert (o_data == ref_queue_enq_1[0])
       else
-        $error("Enqueue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data);
+        begin error_count++; $error("Enqueue: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
     end
     assert (o_full)
-    else $error("The queue should be filled after enqueue!");
+    else begin error_count++; $error("The queue should be filled after enqueue!"); end;
 
     // Test Case 3: Replace nodes with ENQ_ENA enabled
     $display("\nTest Case 3: Replace Test (ENQ_ENA enabled)");
@@ -182,7 +184,7 @@ module register_tree_pipelined_tb;
       replace(random_value);
       assert (o_data == ref_queue_enq_1[0])
       else
-        $error("Replace: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data);
+        begin error_count++; $error("Replace: Node value mismatch -> expected %d, got %d", ref_queue_enq_1[0], o_data); end;
     end
 
     // Test case 4: Random opertaion for 50 times
@@ -195,25 +197,25 @@ module register_tree_pipelined_tb;
           enqueue(random_value);
           assert (o_data == ref_queue_enq_1[0])
           else
-            $error(
+            begin error_count++; $error(
                 "Random Enqueue: Node value mismatch -> expected %d, got %d",
                 ref_queue_enq_1[0],
                 o_data
-            );
+            ); end;
         end
         DEQUEUE: begin
           dequeue();
           if (!o_empty) begin
             assert (o_data == ref_queue_enq_1[0])
             else
-              $error(
+              begin error_count++; $error(
                   "Random Dequeue: Node value mismatch -> expected %d, got %d",
                   ref_queue_enq_1[0],
                   o_data
-              );
+              ); end;
           end else begin
             assert (o_data == '0)
-            else $error("Random Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data);
+            else begin error_count++; $error("Random Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data); end;
           end
         end
         REPLACE: begin
@@ -221,11 +223,11 @@ module register_tree_pipelined_tb;
           replace(random_value);
           assert (o_data == ref_queue_enq_1[0])
           else
-            $error(
+            begin error_count++; $error(
                 "Random Replace: Node value mismatch -> expected %d, got %d",
                 ref_queue_enq_1[0],
                 o_data
-            );
+            ); end;
         end
       endcase
     end
@@ -255,16 +257,16 @@ module register_tree_pipelined_tb;
     // Test Case 4: Dequeue Test with ENQ_ENA disabled
     $display("\nTest Case 4: Dequeue Test (ENQ_ENA disabled)");
     assert (o_full)
-    else $error("The queue should be filled by the intialization!");
+    else begin error_count++; $error("The queue should be filled by the intialization!"); end;
     for (int i = 0; i < QUEUE_SIZE / 2; i++) begin
       dequeue();
       if (!o_empty) begin
         assert (o_data == ref_queue_enq_0[0])
         else
-          $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data);
+          begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data); end;
       end else begin
         assert (o_data == 'd0)
-        else $error("Dequeue: Node value mismatch -> expected %d, got %d", 'd0, o_data);
+        else begin error_count++; $error("Dequeue: Node value mismatch -> expected %d, got %d", 'd0, o_data); end;
       end
     end
 
@@ -277,9 +279,9 @@ module register_tree_pipelined_tb;
       enqueue(random_value);
       assert (o_data == ref_queue_enq_0[0])
       else
-        $error("Enqueue: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data);
+        begin error_count++; $error("Enqueue: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data); end;
     end
-    assert (o_data == o_data_prev) else $error("The queue should not have change!");
+    assert (o_data == o_data_prev) else begin error_count++; $error("The queue should not have change!"); end;
     begin
       bit queues_match;
       bit error_flag;
@@ -295,9 +297,9 @@ module register_tree_pipelined_tb;
           end
         end
       end
-      assert (!error_flag) else $error("The queue should not have change!");
+      assert (!error_flag) else begin error_count++; $error("The queue should not have change!"); end;
     end
-    assert (!o_full && !o_empty) else $error("The queue should not do anything!");
+    assert (!o_full && !o_empty) else begin error_count++; $error("The queue should not do anything!"); end;
 
     // Test Case 6: Test Replace operation with ENQ_ENA disabled
     $display("\nTest Case 6: Replace Test (ENQ_ENA disabled)");
@@ -306,7 +308,7 @@ module register_tree_pipelined_tb;
       replace(random_value);
       assert (o_data == ref_queue_enq_0[0])
       else
-        $error("Replace: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data);
+        begin error_count++; $error("Replace: Node value mismatch -> expected %d, got %d", ref_queue_enq_0[0], o_data); end;
     end
 
     // Test case 8: Random opertaion for 50 times
@@ -319,14 +321,14 @@ module register_tree_pipelined_tb;
           if (!o_empty) begin
             assert (o_data == ref_queue_enq_0[0])
             else
-              $error(
+              begin error_count++; $error(
                   "Random Dequeue: Node value mismatch -> expected %d, got %d",
                   ref_queue_enq_0[0],
                   o_data
-              );
+              ); end;
           end else begin
             assert (o_data == '0)
-            else $error("Random Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data);
+            else begin error_count++; $error("Random Dequeue: Node value mismatch -> expected %d, got %d", '0, o_data); end;
           end
         end
         REPLACE: begin
@@ -334,37 +336,48 @@ module register_tree_pipelined_tb;
           replace(random_value);
           assert (o_data == ref_queue_enq_0[0])
           else
-            $error(
+            begin error_count++; $error(
                 "Random Replace: Node value mismatch -> expected %d, got %d",
                 ref_queue_enq_0[0],
                 o_data
-            );
+            ); end;
         end
       endcase
     end
 
-    $display("\nTest completed!");
-    $finish;
+    if (error_count == 0) begin
+      $display("\nTest completed!");
+      $finish;
+    end else begin
+      $display("\n%0d error(s) detected during simulation.", error_count);
+      $fatal(1, "Test FAILED with %0d error(s).", error_count);
+    end
   end
 
   task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
     begin
       if (!o_full) begin
-        if (current_mode == ENABLED) begin
-          i_wrt_ena = 1;
-          i_read_ena = 0;
-          i_data_ena = value;
+        case (current_mode)
+          ENABLED: begin
+            i_wrt_ena = 1;
+            i_read_ena = 0;
+            i_data_ena = value;
 
-          ref_queue_enq_1[ref_queue_enq_1_size] = value;
-          ref_queue_enq_1_size++;
-      
-          rsort_ena();
-        end else if (current_mode == DISABLED) begin
-          i_wrt_dis = 1;
-          i_read_dis = 0;
-          i_data_dis = value;
-//          $display("Enqueue attempt with ENQ_ENA disabled - should have no effect");
-        end
+            ref_queue_enq_1[ref_queue_enq_1_size] = value;
+            ref_queue_enq_1_size++;
+
+            rsort_ena();
+          end
+          DISABLED: begin
+            i_wrt_dis = 1;
+            i_read_dis = 0;
+            i_data_dis = value;
+//            $display("Enqueue attempt with ENQ_ENA disabled - should have no effect");
+          end
+          default: begin
+            $display("Enqueue: Invalid mode, skipping enqueue");
+          end
+        endcase
       end else begin
         $display("Enqueue: Queue full, skipping enqueue");
       end
@@ -373,37 +386,50 @@ module register_tree_pipelined_tb;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      if (current_mode == ENABLED) repeat ($clog2(QUEUE_SIZE)) @(posedge CLK);
-      else if (current_mode == DISABLED) repeat (2) @(posedge CLK); // should have no effects
+      case (current_mode)
+        ENABLED: begin
+          repeat ($clog2(QUEUE_SIZE)) @(posedge CLK);
+        end
+        DISABLED: begin
+          repeat (2) @(posedge CLK); // should have no effects
+        end
+        default: begin
+          $display("Enqueue: Invalid mode, skipping enqueue");
+        end
+      endcase
     end
   endtask
 
   task automatic dequeue();
     begin
       if (!o_empty) begin
-        if (current_mode == ENABLED) begin
-          i_wrt_ena  = 0;
-          i_read_ena = 1;
-          i_data_ena = 0;
+        case (current_mode)
+          ENABLED: begin
+            i_wrt_ena  = 0;
+            i_read_ena = 1;
+            i_data_ena = 0;
 
-          for (int i = 0; i < ref_queue_enq_1_size - 1; i++) begin
-            ref_queue_enq_1[i] = ref_queue_enq_1[i+1];
+            for (int i = 0; i < ref_queue_enq_1_size - 1; i++) begin
+              ref_queue_enq_1[i] = ref_queue_enq_1[i+1];
+            end
+            ref_queue_enq_1[ref_queue_enq_1_size-1] = '0;
+            ref_queue_enq_1_size--;
           end
-          ref_queue_enq_1[ref_queue_enq_1_size-1] = '0; 
-          ref_queue_enq_1_size--;
+          DISABLED: begin
+            i_wrt_dis  = 0;
+            i_read_dis = 1;
+            i_data_dis = 0;
 
-        end else if (current_mode == DISABLED) begin
-          i_wrt_dis  = 0;
-          i_read_dis = 1;
-          i_data_dis = 0;
-
-          for (int i = 0; i < ref_queue_enq_0_size - 1; i++) begin
-            ref_queue_enq_0[i] = ref_queue_enq_0[i+1];
+            for (int i = 0; i < ref_queue_enq_0_size - 1; i++) begin
+              ref_queue_enq_0[i] = ref_queue_enq_0[i+1];
+            end
+            ref_queue_enq_0[ref_queue_enq_0_size-1] = '0;
+            ref_queue_enq_0_size--;
           end
-          ref_queue_enq_0[ref_queue_enq_0_size-1] = '0; 
-          ref_queue_enq_0_size--;
-
-        end
+          default: begin
+            $display("Dequeue: Invalid mode, skipping dequeue");
+          end
+        endcase
       end else begin
         $display("Dequeue: Queue empty, skipping dequeue");
       end
@@ -412,67 +438,79 @@ module register_tree_pipelined_tb;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      if (current_mode == ENABLED) repeat (2) @(posedge CLK);
-      else if (current_mode == DISABLED) repeat (2) @(posedge CLK);
+
+      repeat (2) @(posedge CLK);
     end
   endtask
 
   task automatic replace(input logic [DATA_WIDTH-1:0] value);
     begin
-      if (current_mode == ENABLED) begin
-        i_wrt_ena  = 1;
-        i_read_ena = 1;
-        i_data_ena = value;
-        if (o_empty) begin
-          ref_queue_enq_1[ref_queue_enq_1_size] = value;
-          ref_queue_enq_1_size++;
-          
-          rsort_ena();
-        end else begin
-          ref_queue_enq_1[0] = value;
-          rsort_ena();
+      case (current_mode)
+        ENABLED: begin
+          i_wrt_ena  = 1;
+          i_read_ena = 1;
+          i_data_ena = value;
+          if (o_empty) begin
+            ref_queue_enq_1[ref_queue_enq_1_size] = value;
+            ref_queue_enq_1_size++;
+
+            rsort_ena();
+          end else begin
+            ref_queue_enq_1[0] = value;
+            rsort_ena();
+          end
         end
-      end else if (current_mode == DISABLED) begin
-        i_wrt_dis  = 1;
-        i_read_dis = 1;
-        i_data_dis = value;
-        if (o_empty) begin
-          ref_queue_enq_0[ref_queue_enq_0_size] = value;
-          ref_queue_enq_0_size++;
-          rsort_dis();
-        end else begin
-          ref_queue_enq_0[0] = value;
-          rsort_dis();
+        DISABLED: begin
+          i_wrt_dis  = 1;
+          i_read_dis = 1;
+          i_data_dis = value;
+          if (o_empty) begin
+            ref_queue_enq_0[ref_queue_enq_0_size] = value;
+            ref_queue_enq_0_size++;
+            rsort_dis();
+          end else begin
+            ref_queue_enq_0[0] = value;
+            rsort_dis();
+          end
         end
-      end
+        default: begin
+          $display("Replace: Invalid mode, skipping replace");
+        end
+      endcase
       @(posedge CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      if (current_mode == ENABLED) repeat (2) @(posedge CLK);
-      else if (current_mode == DISABLED) repeat (2) @(posedge CLK);
+
+      repeat (2) @(posedge CLK);
     end
   endtask
 
   task automatic replace_init(input logic [DATA_WIDTH-1:0] value);
     begin
-      if (current_mode == ENABLED) begin
-        i_wrt_ena  = 1;
-        i_read_ena = 1;
-        i_data_ena = value;
-      end else if (current_mode == DISABLED) begin
-        i_wrt_dis  = 1;
-        i_read_dis = 1;
-        i_data_dis = value;
-      end
+      case (current_mode)
+        ENABLED: begin
+          i_wrt_ena  = 1;
+          i_read_ena = 1;
+          i_data_ena = value;
+        end
+        DISABLED: begin
+          i_wrt_dis  = 1;
+          i_read_dis = 1;
+          i_data_dis = value;
+        end
+        default: begin
+          $display("Replace: Invalid mode, skipping replace");
+        end
+      endcase
       @(posedge CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      if (current_mode == ENABLED) repeat (2) @(posedge CLK);
-      else if (current_mode == DISABLED) repeat (2) @(posedge CLK);
+
+      repeat (2) @(posedge CLK);
     end
   endtask
 

@@ -1,5 +1,26 @@
 `default_nettype none
 
+/*******************************************************************************
+  Module Name: register_array
+  Date: 2026/06/21
+  Description: A priority queue implementation that stores elements in a flat
+               register array rather than a hierarchical heap. A replace
+               operation overwrites the leftmost entry with the new item,
+               followed by two phases of array-wide compare-and-swap (even-
+               indexed then odd-indexed neighbor pairs) to restore order.
+  Parameters: ENQ_ENA - Enables the enqueue datapath when set
+              QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue/replace operation)
+          i_read - Read/pop command (dequeue/replace operation)
+          i_data - Input data to be enqueued (or used for replace)
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 module register_array #(
     parameter bit ENQ_ENA = 0,  // if user would like to enable enqueue
     parameter int QUEUE_SIZE = 4,  // size of the queue

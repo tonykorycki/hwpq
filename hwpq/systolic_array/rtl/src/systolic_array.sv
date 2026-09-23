@@ -1,5 +1,26 @@
 `default_nettype none
 
+/*******************************************************************************
+  Module Name: systolic_array
+  Date: 2026/06/18
+  Description: A priority queue implementation using a systolic array of an
+               input buffer (IB) and output buffer (OB). New nodes shift
+               through the IB, swapping bubble-sort style with adjacent OB
+               nodes so higher-priority (larger f) values migrate into the
+               OB; dequeuing the OB head propagates a "bubble" back through
+               the array to refill it.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of the node's evaluation value (f)
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Enqueue signal
+          i_read - Dequeue signal
+          i_data - Node data input
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Node data output (highest priority element)
+*******************************************************************************/
+
 module systolic_array #(
     parameter int QUEUE_SIZE = 4,  // Size of the buffers (number of positions)
     parameter int DATA_WIDTH = 16  // Width of the node data (evaluation function value 'f')

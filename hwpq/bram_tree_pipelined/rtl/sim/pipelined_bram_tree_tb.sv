@@ -50,6 +50,8 @@ module bram_tree_pipelined_tb;
   // Clock generation: 10ns period
   always #5 CLK <= ~CLK;
 
+  int error_count = 0;
+
   initial begin
     // Initialize signals
     CLK = 0;
@@ -81,10 +83,10 @@ module bram_tree_pipelined_tb;
       dequeue();
       if (!o_empty) begin
         assert (o_data == ref_queue[0])
-        else $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
       end else begin
         assert (o_data == '0)
-        else $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data);
+        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
       end
     end
 
@@ -109,7 +111,7 @@ module bram_tree_pipelined_tb;
       random_value = DataWidth'(($urandom & ((1 << DataWidth) - 1)) % 1025);
       replace(random_value);
       assert (o_data == ref_queue[0])
-      else $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+      else begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
     end
 
     // Test Case 3: Stress Test
@@ -124,10 +126,10 @@ module bram_tree_pipelined_tb;
           if (!o_empty) begin
             assert (o_data == ref_queue[0])
             else
-              $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+              begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
           end else begin
             assert (o_data == '0)
-            else $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data);
+            else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
           end
         end
 
@@ -135,7 +137,7 @@ module bram_tree_pipelined_tb;
           replace(random_value);
           assert (o_data == ref_queue[0])
           else
-            $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data);
+            begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         end
 
         default: begin
@@ -144,8 +146,13 @@ module bram_tree_pipelined_tb;
       endcase
     end
 
-    $display("\nTest completed! ");
-    $finish;
+    if (error_count == 0) begin
+      $display("\nTest completed!");
+      $finish;
+    end else begin
+      $display("\n%0d error(s) detected during simulation.", error_count);
+      $fatal(1, "Test FAILED with %0d error(s).", error_count);
+    end
   end
 
   // Task to read root node

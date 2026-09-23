@@ -1,3 +1,23 @@
+/*******************************************************************************
+  Module Name: bram_tree_pipelined
+  Date: 2026/06/23
+  Description: A pipelined priority queue implementation using a binary max-heap
+               structure stored in block RAM, with the top few levels
+               kept in registers. Supports enqueue, dequeue, and replace
+               operations, trading throughput (one replace every four cycles)
+               for improved scalability over the non-pipelined BRAM tree.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: CLK - System clock
+          RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be inserted (or used for replace)
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 module bram_tree_pipelined #(
     parameter integer QUEUE_SIZE = 7,
     parameter integer DATA_WIDTH = 16

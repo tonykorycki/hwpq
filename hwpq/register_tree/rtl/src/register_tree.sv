@@ -1,5 +1,27 @@
 `default_nettype none
 
+/*******************************************************************************
+  Module Name: register_tree
+  Date: 2026/06/22
+  Description: A register-based priority queue that preserves the heap
+               property across a binary tree of registers, closely
+               resembling a software heap. Enqueue searches for the leftmost
+               invalid entry and reorders the tree; dequeue and replace
+               remove/update the root in a single cycle while alternating-
+               level compare-and-swap operations restore heap order.
+  Parameters: ENQ_ENA - Enables the enqueue datapath when set
+              QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: i_CLK - System clock
+          i_RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue/replace operation)
+          i_read - Read/pop command (dequeue/replace operation)
+          i_data - Input data to be enqueued (or used for replace)
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 module register_tree #(
     parameter bit ENQ_ENA = 1,    // Define if user would like to enable enqueue
     parameter int QUEUE_SIZE = 4095,

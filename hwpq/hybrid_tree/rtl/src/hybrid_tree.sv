@@ -1,3 +1,24 @@
+/*******************************************************************************
+  Module Name: hybrid_tree
+  Date: 2025/03/21
+  Description: A hybrid priority queue (Max H-PQ) that combines a register
+               array holding the root nodes of multiple BRAM-based trees. New
+               items replace the leftmost register entry and propagate down
+               the corresponding BRAM tree, while the register array is kept
+               sorted so each entry is >= its right neighbor. Supports
+               enqueue, dequeue, and replace operations.
+  Parameters: QUEUE_SIZE - Maximum number of elements in the priority queue
+              DATA_WIDTH - Bit width of data elements
+  Inputs: CLK - System clock
+          RSTn - Active-low reset signal
+          i_wrt - Write/insert command (enqueue operation)
+          i_read - Read/pop command (dequeue operation)
+          i_data - Input data to be inserted (or used for replace)
+  Outputs: o_full - High when the queue is at maximum capacity (QUEUE_SIZE)
+           o_empty - High when the queue is empty
+           o_data - Output data from the highest priority element
+*******************************************************************************/
+
 module hybrid_tree #(
     parameter integer QUEUE_SIZE = 4,
     parameter integer DATA_WIDTH = 16

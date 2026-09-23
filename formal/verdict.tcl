@@ -83,7 +83,7 @@ proc hwpq_multiple_driven_gate {} {
     puts "    to see both drivers and the bit count. The usual cause is a vendor"
     puts "    RAM template with one always block per port; merging them into a"
     puts "    single process is sound wherever both ports share a clock."
-    puts "    See F-21 in formal/docs/results.md."
+    puts "    See the multiply-driven RAM section of formal/docs/results.md."
     puts ""
     puts "    RESULT: FAIL"
     puts ""

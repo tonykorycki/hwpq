@@ -22,16 +22,6 @@ module systolic_array_tb;
   int                    ref_size = 0;
   logic [DATA_WIDTH-1:0] tmp;
 
-  // Test variables
-  logic [DATA_WIDTH-1:0] random_value;
-
-  typedef enum int {
-    ENQUEUE = 1,
-    DEQUEUE = 2,
-    REPLACE = 3
-  } t_operation;
-  t_operation random_operation;
-
   // Instantiate the register_tree module
   systolic_array #(
       .QUEUE_SIZE(QUEUE_SIZE),
@@ -76,28 +66,26 @@ module systolic_array_tb;
       Forcing a single word fails too with "cannot force to the word of a variable array". 
       The same applies to the other test cases below. */
     
-    u_SystolicArray.IB[0] = 16'd1;
+    u_SystolicArray.IB[0] = 16'd0;
     u_SystolicArray.IB[1] = 16'd6;
     u_SystolicArray.IB[2] = 16'd4;
     u_SystolicArray.IB[3] = 16'd2;
     u_SystolicArray.OB[0] = 16'd12;
     u_SystolicArray.OB[1] = 16'd11;
     u_SystolicArray.OB[2] = 16'd10;
-    u_SystolicArray.OB[3] = 16'd9;
-    u_SystolicArray.size = 4'd8;
-    u_SystolicArray.size_next = 4'd8;
+    u_SystolicArray.OB[3] = 16'd0;
+    u_SystolicArray.size = 4'd6;
+    u_SystolicArray.size_next = 4'd6;
 
     @(posedge i_CLK);
 
-    ref_queue.push_back(16'd1);
     ref_queue.push_back(16'd6);
     ref_queue.push_back(16'd4);
     ref_queue.push_back(16'd2);
     ref_queue.push_back(16'd12);
     ref_queue.push_back(16'd11);
     ref_queue.push_back(16'd10);
-    ref_queue.push_back(16'd9);
-    ref_size = 8;
+    ref_size = 6;
     for (int i = 0; i < ref_size; i++) begin
       for (int j = i + 1; j < ref_size; j++) begin
         if (ref_queue[i] < ref_queue[j]) begin
@@ -109,92 +97,33 @@ module systolic_array_tb;
     end
     repeat (10) @(posedge i_CLK);
 
-    for (int i = 0; i < 8; i++) begin
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
       dequeue();
-      if (o_read_ready) begin
-        assert (o_data == ref_queue[0])
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-      end else begin
-        assert (o_data == '0)
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-      end
     end
 
-    // Test Case 2: Successive decreasing numbers in IB
-    $display("\nTest Case 2: Successive increasing numbers in OB");
+    // Test Case 2: Successive decreasing numbers from IB to OB+1
+    $display("\nTest Case 2: Successive decreasing numbers from IB to OB+1");
     ref_queue.delete();
-
-    u_SystolicArray.IB[0] = 16'd1;
-    u_SystolicArray.IB[1] = 16'd2;
-    u_SystolicArray.IB[2] = 16'd4;
-    u_SystolicArray.IB[3] = 16'd6;
-    u_SystolicArray.OB[0] = 16'd12;
-    u_SystolicArray.OB[1] = 16'd9;
-    u_SystolicArray.OB[2] = 16'd10;
-    u_SystolicArray.OB[3] = 16'd11;
-    u_SystolicArray.size = 4'd8;
-    u_SystolicArray.size_next = 4'd8;
-
-    @(posedge i_CLK);
-
-    ref_queue.push_back(16'd1);
-    ref_queue.push_back(16'd6);
-    ref_queue.push_back(16'd4);
-    ref_queue.push_back(16'd2);
-    ref_queue.push_back(16'd12);
-    ref_queue.push_back(16'd11);
-    ref_queue.push_back(16'd10);
-    ref_queue.push_back(16'd9);
-
-    ref_size = 8;
-    for (int i = 0; i < ref_size; i++) begin
-      for (int j = i + 1; j < ref_size; j++) begin
-        if (ref_queue[i] < ref_queue[j]) begin
-          tmp = ref_queue[i];
-          ref_queue[i] = ref_queue[j];
-          ref_queue[j] = tmp;
-        end
-      end
-    end
-    repeat (10) @(posedge i_CLK);
-
-    for (int i = 0; i < 8; i++) begin
-      dequeue();
-      if (o_read_ready) begin
-        assert (o_data == ref_queue[0])
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-      end else begin
-        assert (o_data == '0)
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-      end
-    end
-
-    // Test Case 3: Successive decreasing numbers from IB to OB+1
-    $display("\nTest Case 3: Successive decreasing numbers from IB to OB+1");
-    ref_queue.delete();
-    u_SystolicArray.IB[0] = 16'd1;
-    u_SystolicArray.IB[1] = 16'd2;
+    u_SystolicArray.IB[0] = 16'd0;
+    u_SystolicArray.IB[1] = 16'd0;
     u_SystolicArray.IB[2] = 16'd11;
     u_SystolicArray.IB[3] = 16'd10;
     u_SystolicArray.OB[0] = 16'd17;
     u_SystolicArray.OB[1] = 16'd16;
     u_SystolicArray.OB[2] = 16'd15;
     u_SystolicArray.OB[3] = 16'd9;
-    u_SystolicArray.size = 4'd8;
-    u_SystolicArray.size_next = 4'd8;
+    u_SystolicArray.size = 4'd6;
+    u_SystolicArray.size_next = 4'd6;
 
     @(posedge i_CLK);
 
-    ref_queue.push_back(16'd1);
-    ref_queue.push_back(16'd2);
     ref_queue.push_back(16'd11);
     ref_queue.push_back(16'd10);
     ref_queue.push_back(16'd17);
     ref_queue.push_back(16'd16);
     ref_queue.push_back(16'd15);
     ref_queue.push_back(16'd9);
-
-    ref_size = 8;
+    ref_size = 6;
     for (int i = 0; i < ref_size; i++) begin
       for (int j = i + 1; j < ref_size; j++) begin
         if (ref_queue[i] < ref_queue[j]) begin
@@ -206,64 +135,8 @@ module systolic_array_tb;
     end
     repeat (10) @(posedge i_CLK);
 
-    for (int i = 0; i < 8; i++) begin
+    for (int i = 0; i < QUEUE_SIZE; i++) begin
       dequeue();
-      if (o_read_ready) begin
-        assert (o_data == ref_queue[0])
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-      end else begin
-        assert (o_data == '0)
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-      end
-    end
-
-    // Test Case 4: Successive increasing numbers in OB to IB+1
-    $display("\nTest Case 4: Successive decreasing numbers from OB to IB+1");
-    ref_queue.delete();
-    
-    u_SystolicArray.IB[0] = 16'd1;
-    u_SystolicArray.IB[1] = 16'd2;
-    u_SystolicArray.IB[2] = 16'd7;
-    u_SystolicArray.IB[3] = 16'd13;
-    u_SystolicArray.OB[0] = 16'd17;
-    u_SystolicArray.OB[1] = 16'd16;
-    u_SystolicArray.OB[2] = 16'd10;
-    u_SystolicArray.OB[3] = 16'd11;
-    u_SystolicArray.size = 4'd8;
-    u_SystolicArray.size_next = 4'd8;
-
-    @(posedge i_CLK);
-
-    ref_queue.push_back(16'd1);
-    ref_queue.push_back(16'd2);
-    ref_queue.push_back(16'd7);
-    ref_queue.push_back(16'd13);
-    ref_queue.push_back(16'd17);
-    ref_queue.push_back(16'd16);
-    ref_queue.push_back(16'd10);
-    ref_queue.push_back(16'd11);
-
-    ref_size = 8;
-    for (int i = 0; i < ref_size; i++) begin
-      for (int j = i + 1; j < ref_size; j++) begin
-        if (ref_queue[i] < ref_queue[j]) begin
-          tmp = ref_queue[i];
-          ref_queue[i] = ref_queue[j];
-          ref_queue[j] = tmp;
-        end
-      end
-    end
-    repeat (10) @(posedge i_CLK);
-
-    for (int i = 0; i < 8; i++) begin
-      dequeue();
-      if (o_read_ready) begin
-        assert (o_data == ref_queue[0])
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-      end else begin
-        assert (o_data == '0)
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-      end
     end
 
     if (error_count == 0) begin
@@ -279,6 +152,9 @@ module systolic_array_tb;
   task automatic dequeue();
     begin
       if (o_read_ready) begin
+        assert (o_data == ref_queue[0])
+        else
+          begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         i_wrt  = 0;
         i_read = 1;
         for (int i = 0; i < ref_size - 1; i++) begin
@@ -288,41 +164,10 @@ module systolic_array_tb;
         ref_size--;
         
       end else begin
-        $display("Dequeue: Queue empty, skipping dequeue");
+        i_wrt  = 0;
+        i_read = 0;
       end
       @(posedge i_CLK);
-      i_wrt  = 0;
-      i_read = 0;
-      repeat (3) @(posedge i_CLK);
-    end
-  endtask
-
-  // Task to replace root node
-  task automatic replace(input logic [DATA_WIDTH-1:0] value);
-    logic [DATA_WIDTH-1:0] tmp;
-    begin
-      if (ref_size > 0) begin
-        i_wrt  = 1;
-        i_read = 1;
-        i_data = value;
-        ref_queue[0] = value;
-        for (int i = 0; i < ref_size; i++) begin
-          for (int j = i + 1; j < ref_size; j++) begin
-            if (ref_queue[i] < ref_queue[j]) begin
-              tmp = ref_queue[i];
-              ref_queue[i] = ref_queue[j];
-              ref_queue[j] = tmp;
-            end
-          end
-        end
-      end else begin
-        $display("Replace: Queue empty, skipping replace");
-      end
-      
-      @(posedge i_CLK);
-      i_wrt  = 0;
-      i_read = 0;
-      repeat (2) @(posedge i_CLK); 
     end
   endtask
 

@@ -45,6 +45,12 @@ module register_tree #(
   //----------------------------------------------------------------------
   localparam int TREE_DEPTH = $clog2(QUEUE_SIZE);  // depth of the tree
   localparam int NODES_NEEDED = (1 << TREE_DEPTH) - 1;  // number of nodes needed to initialize
+  // Worst-case settle cycles: enqueue climbs (~TREE_DEPTH/2, two levels/cycle),
+  // dequeue/replace sink and finish in one cycle
+  localparam int CLIMB_CYCLES = (TREE_DEPTH + 2) / 2;
+  localparam int SINK_CYCLES  = 1;
+  localparam int SETTLE_MAX   = (CLIMB_CYCLES > SINK_CYCLES) ? CLIMB_CYCLES : SINK_CYCLES;
+  localparam int CNT_W        = $clog2(SETTLE_MAX + 1);
 
   //----------------------------------------------------------------------
   // Internal Registers and Wires
@@ -59,7 +65,11 @@ module register_tree #(
 
   // Control signals
   logic enqueue, dequeue, replace;
-  
+  logic head_valid, can_accept;
+
+  // Settle countdown (see the settled-detector section below)
+  logic [CNT_W-1:0] settle_cnt, next_settle_cnt;
+
   // Results of each operation - calculated in parallel
   logic [DATA_WIDTH-1:0] swap_result[NODES_NEEDED];
   logic [DATA_WIDTH-1:0] next_queue[NODES_NEEDED];
@@ -94,15 +104,16 @@ module register_tree #(
   //----------------------------------------------------------------------
   // Signals assignments
   //----------------------------------------------------------------------
-  // Control signal assignment
-  assign enqueue = ENQ_ENA && i_wrt && !i_read; // Only enable enqueue if ENQ_ENA is high
-  assign dequeue = !i_wrt && i_read;
-  assign replace = i_wrt && i_read;
+  // A command is refused unless the queue can honor it (this also gates size).
+  // Enqueue/dequeue gate on full/empty; replace pops-and-pushes so needs neither.
+  assign enqueue = ENQ_ENA && i_wrt && !i_read && o_write_ready;
+  assign dequeue = !i_wrt && i_read && o_read_ready;
+  assign replace = i_wrt && i_read && can_accept && head_valid;
   // Size counter signals
   assign empty = (size <= 0);
   assign full = (size >= QUEUE_SIZE);
-  assign o_write_ready = !full;
-  assign o_read_ready = !empty;
+  assign o_write_ready = !full && can_accept;
+  assign o_read_ready  = !empty && head_valid;
   assign o_data = queue[0];
 
   //----------------------------------------------------------------------
@@ -286,12 +297,51 @@ module register_tree #(
         queue[i] <= reset_queue[i];
       end
       size            <= 0;
+      settle_cnt      <= '0;  // reset queue is settled
     end else begin
       for (int i = 0; i < NODES_NEEDED; i++) begin
         queue[i] <= next_queue[i];
       end
       size            <= next_size;
+      settle_cnt      <= next_settle_cnt;
     end
   end
+
+  // head_valid is a compare against a counter flop, not an O(N) heap scan, to
+  // keep the detector off the critical path. No comb loop: settle_cnt is a flop.
+  always_comb begin : calculate_next_settle_cnt
+    if (enqueue) begin
+      next_settle_cnt = CLIMB_CYCLES[CNT_W-1:0];
+    end else if (dequeue || replace) begin
+      next_settle_cnt = SINK_CYCLES[CNT_W-1:0];
+    end else if (settle_cnt != 0) begin
+      next_settle_cnt = settle_cnt - 1'b1;
+    end else begin
+      next_settle_cnt = '0;
+    end
+  end
+
+  assign head_valid = (settle_cnt == 0);
+
+  // Data-adaptive alternatives (release earlier, but put a cone on the critical
+  // path). O(1) root-local is sound only without enqueue (a climber can outrank
+  // the root while hidden below it); O(N) invariant covers enqueue too.
+  //
+  //   assign head_valid = (NODES_NEEDED < 2 || queue[0] >= queue[1]) &&
+  //                       (NODES_NEEDED < 3 || queue[0] >= queue[2]);  // !ENQ_ENA
+  //
+  //   logic viol;                                                      // ENQ_ENA
+  //   always_comb begin : heap_invariant_detector
+  //     viol = 1'b0;
+  //     for (int i = 0; i < NODES_NEEDED; i++) begin
+  //       if (2*i+1 < NODES_NEEDED && queue[i] < queue[2*i+1]) viol = 1'b1;
+  //       if (2*i+2 < NODES_NEEDED && queue[i] < queue[2*i+2]) viol = 1'b1;
+  //     end
+  //   end
+  //   assign head_valid = !viol;
+
+  // Accepting a command mid-settle would discard the pending heapify (swap_result
+  // is applied only in the default branch), so absorb requires the same quiescence.
+  assign can_accept = head_valid;
 
 endmodule

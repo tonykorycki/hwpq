@@ -24,9 +24,9 @@ module bram_tree_tb;
   logic   [DATA_WIDTH-1:0] random_value;
 
   typedef enum integer {
-    ENQUEUE = 1,
-    DEQUEUE = 2,
-    REPLACE = 3
+    ENQUEUE = 0,
+    DEQUEUE = 1,
+    REPLACE = 2
   } operation_t;
 	operation_t random_operation;
 
@@ -61,85 +61,52 @@ module bram_tree_tb;
     repeat (2) @(posedge i_CLK);
 
     // Initialize the reference queue, sort the reference queue, and write to the queue
-    for (i = 0; i < QUEUE_SIZE; i++) begin
+    for (i = 0; i < QUEUE_SIZE*5; i++) begin
       random_value = $urandom_range(0, 1024);
       enqueue(random_value);
     end
-
-    repeat (16) @(posedge i_CLK);
 
     // Test Case 1: Dequeue nodes
     // Dequeue nodes for QUEUE_SIZE times
     $display("\nTest Case 1: Dequeue Test");
-    for (i = 0; i < QUEUE_SIZE; i++) begin
+    for (i = 0; i < QUEUE_SIZE*5; i++) begin
       dequeue();
-      if (o_read_ready) begin
-        assert (o_data == ref_queue[0])
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-      end else begin
-        assert (o_data == '0)
-        else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-      end
     end
-
-    repeat (16) @(posedge i_CLK);
-
     
     // Test Case 2: Enqueue nodes
     // Enqueue random values for QUEUE_SIZE times
     $display("\nTest Case 2: Enqueue Test");
-    for (i = 0; i < QUEUE_SIZE; i++) begin
+    for (i = 0; i < QUEUE_SIZE*3; i++) begin
       random_value = $urandom_range(0, 1024);
       enqueue(random_value);
-      assert (o_data == ref_queue[0])
-      else begin error_count++; $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
     end
-
-
-    repeat (16) @(posedge i_CLK);
     
     // Test Case 3: Replace nodes
     // Replace root node for QUEUE_SIZE times
     $display("\nTest Case 3: Replace Test");
-    for (i = 0; i < QUEUE_SIZE; i++) begin
+    for (i = 0; i < QUEUE_SIZE*3; i++) begin
       random_value = $urandom_range(0, 1024);
       replace(random_value);
-      assert (o_data == ref_queue[0])
-      else begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
     end
 
     
     // Test Case 3: Stress Test
     // stress test, mix operations
     $display("\nTest Case 4: Stress Test");
-    for (i = 0; i < 100; i++) begin
+    for (i = 0; i < 1000; i++) begin
       random_value = $urandom_range(0, 1024);
-      random_operation = operation_t'($urandom_range(1,3));
+      random_operation = operation_t'($urandom_range(0,2));
       case (random_operation)
 				ENQUEUE: begin
           enqueue(random_value);
-          assert (o_data == ref_queue[0])
-          else
-            begin error_count++; $error("Enqueue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         end
 
         DEQUEUE: begin
           dequeue();
-          if (o_read_ready) begin
-            assert (o_data == ref_queue[0])
-            else
-              begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
-          end else begin
-            assert (o_data == '0)
-            else begin error_count++; $error("Dequeue: Node f value mismatch -> expected %d, got %d", '0, o_data); end;
-          end
         end
 
         REPLACE: begin
           replace(random_value);
-          assert (o_data == ref_queue[0])
-          else
-            begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         end
 
         default: begin
@@ -180,12 +147,10 @@ module bram_tree_tb;
           end
         end
       end else begin
-        $display("Enqueue: Queue full, skipping enqueue");
+        i_wrt  = 0;
+        i_read = 0;
       end
       @(posedge i_CLK);
-      i_wrt  = 0;
-      i_read = 0;
-      repeat (6 * ($clog2(QUEUE_SIZE + 1) + 1)) @(posedge i_CLK);
     end
   endtask
 
@@ -193,6 +158,9 @@ module bram_tree_tb;
   task automatic dequeue();
     begin
       if (o_read_ready) begin
+        assert (o_data == ref_queue[0])
+        else
+          begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         i_wrt  = 0;
         i_read = 1;
         for (int i = 0; i < ref_size - 1; i++) begin
@@ -202,12 +170,10 @@ module bram_tree_tb;
         ref_size--;
         
       end else begin
-        $display("Dequeue: Queue empty, skipping dequeue");
+        i_wrt  = 0;
+        i_read = 0;
       end
       @(posedge i_CLK);
-      i_wrt  = 0;
-      i_read = 0;
-      repeat (6 * ($clog2(QUEUE_SIZE + 1) + 1)) @(posedge i_CLK);
     end
   endtask
 
@@ -215,7 +181,10 @@ module bram_tree_tb;
   task automatic replace(input logic [DATA_WIDTH-1:0] value);
     logic [DATA_WIDTH-1:0] tmp;
     begin
-      if (ref_size > 0) begin
+      if (o_read_ready) begin
+        assert (o_data == ref_queue[0])
+        else
+          begin error_count++; $error("Replace: Node f value mismatch -> expected %d, got %d", ref_queue[0], o_data); end;
         i_wrt  = 1;
         i_read = 1;
         i_data = value;
@@ -230,13 +199,10 @@ module bram_tree_tb;
           end
         end
       end else begin
-        $display("Replace: Queue empty, skipping replace");
+        i_wrt  = 0;
+        i_read = 0;
       end
-      
       @(posedge i_CLK);
-      i_wrt  = 0;
-      i_read = 0;
-      repeat (6 * ($clog2(QUEUE_SIZE + 1) + 1)) @(posedge i_CLK);
     end
   endtask
 

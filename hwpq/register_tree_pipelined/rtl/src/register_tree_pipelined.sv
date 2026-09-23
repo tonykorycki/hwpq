@@ -43,6 +43,10 @@ module register_tree_pipelined #(
   //----------------------------------------------------------------------
   localparam int TREE_DEPTH = $clog2(QUEUE_SIZE);  // depth of the tree
   localparam int NODES_NEEDED = (1 << TREE_DEPTH) - 1;  // number of nodes needed to initialize
+  // Worst-case settle cycles. One level sifted per cycle => uniform bound for
+  // every op (climb or sink): TREE_DEPTH-1 transitions + a parity-slack cycle.
+  localparam int SETTLE_CYCLES = TREE_DEPTH;
+  localparam int CNT_W         = $clog2(SETTLE_CYCLES + 1);
 
   //----------------------------------------------------------------------
   // Internal Registers and Wires
@@ -57,7 +61,11 @@ module register_tree_pipelined #(
   logic [$clog2(NODES_NEEDED)-1:0] next_size;
 
   logic empty, full, enqueue, dequeue, replace;
+  logic next_empty, next_full;
   logic even_cycle_flag, next_even_cycle_flag;
+  logic head_valid, can_accept;
+
+  logic [CNT_W-1:0] settle_cnt, next_settle_cnt;
 
   int found_empty_index;
 
@@ -78,14 +86,19 @@ module register_tree_pipelined #(
   // Signals assignments
   //----------------------------------------------------------------------
 
-  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? 1'b1 : 1'b0; // Only enable enqueue if ENQ_ENA is high
-  assign dequeue = !i_wrt && i_read ? 1'b1 : 1'b0;
-  assign replace = i_wrt && i_read ? 1'b1 : 1'b0;
+  // A command is refused unless the queue can honor it (this also gates size).
+  // Enqueue/dequeue gate on full/empty; replace pops-and-pushes so needs neither.
+  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? o_write_ready : 1'b0;
+  assign dequeue = (!i_wrt && i_read) ? o_read_ready : 1'b0;
+  assign replace = (i_wrt && i_read) ? (can_accept && head_valid) : 1'b0;
 
-  assign empty = (size <= 0) ? 1'b1 : 1'b0;
-  assign full = (size >= QUEUE_SIZE) ? 1'b1 : 1'b0;
-  assign o_write_ready = !full;
-  assign o_read_ready = !empty;
+  // full/empty are REGISTERED (see update_registers): flopping the >=QUEUE_SIZE
+  // comparator keeps it off the decode path; value is identical every cycle.
+  assign next_empty = (next_size == 0) ? 1'b1 : 1'b0;
+  assign next_full  = (next_size >= QUEUE_SIZE) ? 1'b1 : 1'b0;
+
+  assign o_write_ready = !full && can_accept;
+  assign o_read_ready = !empty && head_valid;
   assign o_data = queue[0];
 
   //----------------------------------------------------------------------
@@ -237,13 +250,52 @@ module register_tree_pipelined #(
       end
       size            <= 0;
       even_cycle_flag <= 1'b1;
+      settle_cnt      <= '0;  // reset queue is settled
+      full            <= 1'b0;
+      empty           <= 1'b1;  // size resets to 0
     end else begin
       for (int i = 0; i < NODES_NEEDED; i++) begin
         queue[i] <= next_queue[i];
       end
       size            <= next_size;
       even_cycle_flag <= next_even_cycle_flag;
+      settle_cnt      <= next_settle_cnt;
+      full            <= next_full;
+      empty           <= next_empty;
     end
   end
+
+  // Settled detector: uniform settle countdown (see localparams). head_valid is
+  // a compare against a counter flop, not an O(N) heap scan, to keep it off the
+  // critical path (that cone failed by ~1ns when flopped)
+  always_comb begin : calculate_next_settle_cnt
+    if (enqueue || dequeue || replace) begin
+      next_settle_cnt = SETTLE_CYCLES[CNT_W-1:0];
+    end else if (settle_cnt != 0) begin
+      next_settle_cnt = settle_cnt - 1'b1;
+    end else begin
+      next_settle_cnt = '0;
+    end
+  end
+
+  assign head_valid = (settle_cnt == 0);
+
+  // Data-adaptive alternative (releases earlier, but puts an O(N) cone on the
+  // critical path). This module needs the FULL invariant even without enqueue:
+  // it sifts one level-pair/cycle, so root-local reports settled early.
+  
+  // this decreased FMax but ultimately increased throughput for some queue sizes
+  
+  //   always_comb begin : heap_invariant_detector
+  //     head_valid = 1'b1;
+  //     for (int i = 0; i < NODES_NEEDED; i++) begin
+  //       if (2*i+1 < NODES_NEEDED && queue[i] < queue[2*i+1]) head_valid = 1'b0;
+  //       if (2*i+2 < NODES_NEEDED && queue[i] < queue[2*i+2]) head_valid = 1'b0;
+  //     end
+  //   end
+
+  // Accepting a command mid-settle would discard the pending heapify (swap_result
+  // is applied only in the default branch), so absorb requires the same quiescence.
+  assign can_accept = head_valid;
 
 endmodule

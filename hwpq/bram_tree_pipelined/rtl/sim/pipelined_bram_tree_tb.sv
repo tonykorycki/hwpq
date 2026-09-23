@@ -50,6 +50,23 @@ module bram_tree_pipelined_tb;
   // Clock generation: 10ns period
   always #5 i_CLK <= ~i_CLK;
 
+  logic settled;
+  assign settled = o_write_ready;
+  
+  localparam int SETTLE_TIMEOUT = 10000;
+  task automatic poll_settled();
+    int guard;
+    guard = 0;
+    while (!settled) begin
+      @(negedge i_CLK);
+      guard++;
+      if (guard > SETTLE_TIMEOUT) begin
+        $fatal(1, "poll_settled: DUT never settled after %0d cycles (o_write_ready=%0b o_read_ready=%0b)",
+               SETTLE_TIMEOUT, o_write_ready, o_read_ready);
+      end
+    end
+  endtask
+
   int error_count = 0;
 
   initial begin
@@ -64,6 +81,7 @@ module bram_tree_pipelined_tb;
     @(posedge i_CLK);
     i_RSTn = 1;
     repeat (2) @(posedge i_CLK);
+    @(negedge i_CLK);
 
     // Initialize the reference queue, sort the reference queue, and write to the queue
     for (i = 0; i < QueueSize; i++) begin
@@ -74,7 +92,7 @@ module bram_tree_pipelined_tb;
     end
     rsort();
 
-    repeat (16) @(posedge i_CLK);
+    poll_settled();
 
     // Test Case 1: Dequeue nodes
     // Dequeue nodes for QUEUE_SIZE times
@@ -94,6 +112,7 @@ module bram_tree_pipelined_tb;
     @(posedge i_CLK);
     i_RSTn = 1;
     repeat (2) @(posedge i_CLK);
+    @(negedge i_CLK);
 
     for (i = 0; i < QueueSize; i++) begin
       random_value = DataWidth'(($urandom & ((1 << DataWidth) - 1)) % 1025);
@@ -102,7 +121,7 @@ module bram_tree_pipelined_tb;
     end
     ref_queue.rsort();*/
     
-    repeat (16) @(posedge i_CLK);
+    poll_settled();
 
     // Test Case 2: Replace nodes
     // Replace root node for QUEUE_SIZE times
@@ -158,6 +177,7 @@ module bram_tree_pipelined_tb;
   // Task to read root node
   task automatic dequeue();
     begin
+      poll_settled();
       if (o_read_ready) begin
         i_wrt  = 0;
         i_read = 1;
@@ -170,15 +190,17 @@ module bram_tree_pipelined_tb;
         $display("Dequeue: Queue empty, skipping dequeue");
       end
       @(posedge i_CLK);
+      @(negedge i_CLK);
       i_wrt  = 0;
       i_read = 0;
-      repeat (24) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 
   // Task to replace root node
   task automatic replace(input logic [DataWidth-1:0] value);
     begin
+      poll_settled();
       i_wrt  = 1;
       i_read = 1;
       i_data = value;
@@ -191,21 +213,24 @@ module bram_tree_pipelined_tb;
         rsort();
       end
       @(posedge i_CLK);
+      @(negedge i_CLK);
       i_wrt  = 0;
       i_read = 0;
-      repeat (24) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 
   task automatic replace_init(input logic [DataWidth-1:0] value);
     begin
+      poll_settled();
       i_wrt  = 1;
       i_read = 1;
       i_data = value;
-      repeat (1) @(posedge i_CLK);
+      @(posedge i_CLK);
+      @(negedge i_CLK);
       i_wrt  = 0;
       i_read = 0;
-      repeat (24) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 

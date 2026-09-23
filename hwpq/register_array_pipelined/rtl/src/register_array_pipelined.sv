@@ -51,6 +51,7 @@ module register_array_pipelined #(
   logic [$clog2(QUEUE_SIZE):0] size, next_size;
 
   logic full, empty, enqueue, dequeue, replace, even_cycle_flag, next_even_cycle_flag;
+  logic head_valid, can_accept;
 
   generate
     for (genvar i = 0; i < QUEUE_SIZE; i++) begin : l_gen_reset_queue
@@ -62,13 +63,16 @@ module register_array_pipelined #(
     end
   endgenerate
 
-  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? 'b1 : 'b0;
-  assign dequeue = (!i_wrt && i_read) ? 'b1 : 'b0;
-  assign replace = (i_wrt && i_read) ? 'b1 : 'b0;
+  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? o_write_ready : 'b0;
+  assign dequeue = (!i_wrt && i_read) ? o_read_ready : 'b0;
+  assign replace = (i_wrt && i_read) ? (can_accept && head_valid) : 'b0;
   assign full = (size >= QUEUE_SIZE) ? 'b1 : 'b0;
   assign empty = (size <= '0) ? 'b1 : 'b0;
-  assign o_write_ready = !full;
-  assign o_read_ready = !empty;
+
+  //   o_write_ready - can you take another value?
+  //   o_read_ready  - is o_data trustworthy?
+  assign o_write_ready = !full && can_accept;
+  assign o_read_ready = !empty && head_valid;
   assign o_data = queue[0];
 
   always_ff @(posedge i_CLK or negedge i_RSTn) begin
@@ -189,5 +193,9 @@ module register_array_pipelined #(
       end
     endcase
   end
+
+
+  assign head_valid = (queue[0] >= queue[1]);
+  assign can_accept = head_valid;
 
 endmodule

@@ -116,6 +116,22 @@ module register_array_pipelined_tb;
 
   // Clock generation: 10ns period
   always #5 i_CLK <= ~i_CLK;
+  logic settled;
+  assign settled = o_write_ready || o_read_ready;
+
+  localparam int SETTLE_TIMEOUT = 10000;
+  task automatic poll_settled();
+    int guard;
+    guard = 0;
+    while (!settled) begin
+      @(negedge i_CLK);
+      guard++;
+      if (guard > SETTLE_TIMEOUT) begin
+        $fatal(1, "poll_settled: DUT never settled after %0d cycles (o_write_ready=%0b o_read_ready=%0b)",
+               SETTLE_TIMEOUT, o_write_ready, o_read_ready);
+      end
+    end
+  endtask
 
   int error_count = 0;
 
@@ -138,6 +154,7 @@ module register_array_pipelined_tb;
     @(posedge i_CLK);
     i_RSTn = 1;
     @(posedge i_CLK);
+    @(negedge i_CLK);
 
     // Test with ENQ_ENA enabled
     $display("\n=== Testing with ENQ_ENA enabled ===");
@@ -241,6 +258,7 @@ module register_array_pipelined_tb;
     @(posedge i_CLK);
     i_RSTn = 1;
     @(posedge i_CLK);
+    @(negedge i_CLK); 
 
     // Initialize queue inside enqueue disabled module
     $display("\nInitializing enqueue disabled module by replacing into it");
@@ -355,6 +373,7 @@ module register_array_pipelined_tb;
 
   task automatic enqueue(input logic [DATA_WIDTH-1:0] value);
     begin
+      poll_settled();
       if (o_write_ready) begin
         case (current_mode)
           ENABLED: begin
@@ -380,17 +399,19 @@ module register_array_pipelined_tb;
       end else begin
         $display("Enqueue: Queue full, skipping enqueue");
       end
-      @(posedge i_CLK);
+      @(posedge i_CLK); 
+      @(negedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-      repeat (2) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 
   task automatic dequeue();
     begin
+      poll_settled();
       if (o_read_ready) begin
         case (current_mode)
           ENABLED: begin
@@ -422,18 +443,19 @@ module register_array_pipelined_tb;
       end else begin
         $display("Dequeue: Queue empty, skipping dequeue");
       end
-      @(posedge i_CLK);
+      @(posedge i_CLK); 
+      @(negedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-
-      repeat (2) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 
   task automatic replace(input logic [DATA_WIDTH-1:0] value);
     begin
+      poll_settled();
       case (current_mode)
         ENABLED: begin
           i_wrt_ena  = 1;
@@ -467,17 +489,18 @@ module register_array_pipelined_tb;
         end
       endcase
       @(posedge i_CLK);
+      @(negedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-
-      repeat (2) @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 
   task automatic replace_init(input logic [DATA_WIDTH-1:0] value);
     begin
+      poll_settled(); 
       case (current_mode)
         ENABLED: begin
           i_wrt_ena  = 1;
@@ -494,12 +517,12 @@ module register_array_pipelined_tb;
         end
       endcase
       @(posedge i_CLK);
+      @(negedge i_CLK);
       i_wrt_ena  = 0;
       i_read_ena = 0;
       i_wrt_dis  = 0;
       i_read_dis = 0;
-
-      @(posedge i_CLK);
+      poll_settled();
     end
   endtask
 

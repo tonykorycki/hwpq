@@ -62,11 +62,14 @@ module register_array #(
     end
   endgenerate
 
-  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? 'b1 : 'b0;
-  assign dequeue = (!i_wrt && i_read) ? 'b1 : 'b0;
+  // Enqueue and dequeue are refused when the queue cannot honor them
+  assign enqueue = (ENQ_ENA && i_wrt && !i_read) ? o_write_ready : 'b0;
+  assign dequeue = (!i_wrt && i_read) ? o_read_ready : 'b0;
   assign replace = (i_wrt && i_read) ? 'b1 : 'b0;
   assign full = (size >= QUEUE_SIZE) ? 'b1 : 'b0;
   assign empty = (size <= '0) ? 'b1 : 'b0;
+
+  // head valid every cycle since queue_operation folds the command into stage1
   assign o_write_ready = !full;
   assign o_read_ready = !empty;
   assign o_data = queue[0];

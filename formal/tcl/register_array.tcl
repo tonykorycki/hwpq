@@ -30,7 +30,7 @@ set src {
     formal/bind/register_array_bind.sv
 }
 if {$HWPQ_SELFTEST} {
-    puts "### SELF-TEST MODE: the plumbing property is deliberately inverted."
+    puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
     analyze -sv12 -define HWPQ_SELFTEST {*}$src
 } else {
     analyze -sv12 {*}$src

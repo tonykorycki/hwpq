@@ -53,3 +53,13 @@ build/
 formal/fv_proj/
 # a bare `fv_tool` invoked from the repo root creates its own project dir
 fv_proj/
+# vendor_sim. vendor_sim is the only simulator on CEPool - iverilog and verilator are not
+# installed there - so running the shared testbenches drops these in whatever
+# directory vendor_sim was invoked from, which is usually the repo root.
+vendor_sim.d/
+vendor_sim.log
+vendor_sim.history
+vendor_sim.key
+vendor_sim_libs/
+.simvision/
+waves.shm/

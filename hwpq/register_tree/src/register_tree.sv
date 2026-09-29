@@ -327,6 +327,9 @@ module register_tree #(
   // path). O(1) root-local is sound only without enqueue (a climber can outrank
   // the root while hidden below it); O(N) invariant covers enqueue too.
   //
+  // this extends the critical path but ultimately allows more ops per cycle - likely queue size dependent,
+  // and i only ran one before+after synth. the tb did take fewer cycles witht this though. 
+  //
   //   assign head_valid = (NODES_NEEDED < 2 || queue[0] >= queue[1]) &&
   //                       (NODES_NEEDED < 3 || queue[0] >= queue[2]);  // !ENQ_ENA
   //

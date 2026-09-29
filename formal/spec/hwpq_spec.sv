@@ -111,10 +111,16 @@ module hwpq_spec #(
     // HOLE CH-4: any bug that needs a read during the fill phase is now
     // unreachable. Set ASSUME_FILL_FIRST=0 for an ungated run.
     if (!ENQ_ENA && ASSUME_FILL_FIRST) begin : g_fill_first
+      // `settled &&` is load-bearing. o_write_ready is !full AND not-busy, so a
+      // bare !o_write_ready also latches on the first BUSY cycle - which on a
+      // sequential module means the latch fires almost immediately and the
+      // assumption stops constraining anything. Gating on settled is what makes
+      // this mean "reported full while quiescent". It made no difference on the
+      // combinational modules, which is exactly why it survived there.
       logic filled_once;
       always_ff @(posedge i_CLK or negedge i_RSTn) begin
         if (!i_RSTn) filled_once <= 1'b0;
-        else if (!o_write_ready) filled_once <= 1'b1;
+        else if (settled && !o_write_ready) filled_once <= 1'b1;
       end
 
       am_fill_before_read : assume property (@(posedge i_CLK) disable iff (!i_RSTn)

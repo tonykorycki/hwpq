@@ -1,11 +1,16 @@
-# the formal tool proof: register_tree
+# the formal tool proof: systolic_array, F-7 gap characterisation
 #
 # Run from the REPO ROOT. Use formal/run.sh rather than invoking this directly.
 #
-# The first SEQUENTIAL module: both readies drop together while an operation is
-# in flight, so this is what actually exercises the busy-state machinery in the
-# spec - p_at_next_settle's non-degenerate path and a_progress. Everything
-# proven before this ran with `settled` constant 1.
+# A white-box run, NOT a second functional proof. It binds hwpq_systolic_aux
+# only - deliberately without hwpq_spec, because the spec carries
+# ASSUME_ENQ_WHEN_WREADY and that assumption forbids precisely the window this
+# run exists to measure. Binding both would leave every property here vacuous
+# and every cover unreachable.
+#
+# What it decides: how wide the ready/accept disagreement is, whether it is
+# reachable, and what the queue's true capacity is as opposed to its advertised
+# one. See F-7 in formal/README.md.
 
 clear -all
 
@@ -16,11 +21,9 @@ if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED)
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
-    hwpq/register_tree/src/register_tree.sv
-    formal/spec/hwpq_spec.sv
-    formal/bind/register_tree_bind.sv
-    formal/spec/hwpq_tree_aux.sv
-    formal/bind/register_tree_aux_bind.sv
+    hwpq/systolic_array/src/systolic_array.sv
+    formal/spec/hwpq_systolic_aux.sv
+    formal/bind/systolic_array_aux_bind.sv
 }
 set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
@@ -37,20 +40,16 @@ foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
 analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
-# QUEUE_SIZE must be 2^k-1 for the tree designs: NODES_NEEDED is
-# (1 << TREE_DEPTH) - 1, and any other size leaves a partly-populated bottom
-# level. 7 is the smallest size with a real interior level.
-elaborate -top register_tree \
-    -parameter QUEUE_SIZE 7 \
-    -parameter DATA_WIDTH 3 \
-    -parameter ENQ_ENA    1
+elaborate -top systolic_array \
+    -parameter QUEUE_SIZE 8 \
+    -parameter DATA_WIDTH 3
 
 # ---- 3. time and reset ------------------------------------------------------
 clock i_CLK
 reset ~i_RSTn
 
 # ---- 4. prove, gate, exit ---------------------------------------------------
-set HWPQ_MODULE        register_tree
+set HWPQ_MODULE        systolic_array_gap
 set HWPQ_ALLOW_BOUNDED 0
 # No workaround assumption applies here, so --ungated is a no-op and the
 # property set must be clean in both modes.

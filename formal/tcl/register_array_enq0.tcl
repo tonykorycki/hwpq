@@ -12,6 +12,8 @@ clear -all
 
 set HWPQ_SELFTEST 0
 if {[info exists ::env(HWPQ_SELFTEST)]} { set HWPQ_SELFTEST $::env(HWPQ_SELFTEST) }
+set HWPQ_UNGATED 0
+if {[info exists ::env(HWPQ_UNGATED)]}  { set HWPQ_UNGATED  $::env(HWPQ_UNGATED) }
 
 # ---- 1. sources -------------------------------------------------------------
 set src {
@@ -19,12 +21,19 @@ set src {
     formal/spec/hwpq_spec.sv
     formal/bind/register_array_bind.sv
 }
+set hwpq_defs {}
 if {$HWPQ_SELFTEST} {
     puts "### SELF-TEST MODE: the self-test property is deliberately unprovable."
-    analyze -sv12 -define HWPQ_SELFTEST {*}$src
-} else {
-    analyze -sv12 {*}$src
+    lappend hwpq_defs HWPQ_SELFTEST
 }
+if {$HWPQ_UNGATED} {
+    puts "### UNGATED MODE: workaround assumptions dropped; the recorded"
+    puts "###               shortcomings are expected to reproduce."
+    lappend hwpq_defs HWPQ_UNGATED
+}
+set hwpq_dflags {}
+foreach d $hwpq_defs { lappend hwpq_dflags -define $d }
+analyze -sv12 {*}$hwpq_dflags {*}$src
 
 # ---- 2. elaborate SMALL -----------------------------------------------------
 # Same sizes as the ENQ_ENA=1 run; only the reset fill and the command set move.
@@ -45,7 +54,16 @@ set HWPQ_ALLOW_BOUNDED 0
 # this build to the initialisation convention its callers follow (fill the queue
 # before reading from it). That is hole CH-4 -- see formal/README.md. The cover
 # set is what proves the assumption did not strangle the design.
-set HWPQ_EXPECT_CEX    {}
+# Ungated runs must reproduce EXACTLY these and nothing else. If one stops
+# firing the defect was fixed and the assumption should be retired; if a new
+# one appears, something regressed. Either way the run fails and says which.
+#   F-1: without ASSUME_FILL_FIRST the replace-only queue reports empty while
+#   still physically holding the payload, and advertises a placeholder as data.
+if {$HWPQ_UNGATED} {
+    set HWPQ_EXPECT_CEX {a_occ_empty_agrees a_no_loss}
+} else {
+    set HWPQ_EXPECT_CEX {}
+}
 
 source formal/tcl/common.tcl
 hwpq_prove_and_exit

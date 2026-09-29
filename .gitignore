@@ -47,9 +47,9 @@ obj_dir
 
 build/
 
-# the formal tool formal scratch
+# the formal tool formal scratch. run.sh puts EVERYTHING a run generates under
+# formal/fv_proj/<module>[_selftest][_ungated]/ - the tool's own scratch, the
+# console log, and the property summary - so this one line covers all of it.
 formal/fv_proj/
-formal/fv_proj_*/
-formal/*.log
-formal/*_summary.txt
+# a bare `fv_tool` invoked from the repo root creates its own project dir
 fv_proj/

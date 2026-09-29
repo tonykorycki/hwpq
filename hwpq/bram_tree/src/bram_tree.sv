@@ -28,6 +28,13 @@
     - Replaced all `'{field: value, ...}` assignment-pattern struct literals
       with field-by-field assignment (next.value = ...; next.position = ...;
       etc.) for Icarus Verilog compatibility. Plain '0 fills are unaffected.
+  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
+           slot and the dequeue mechanism (write it into the head and let the
+           sort network sink it); all-ones is the max-priority placeholder an
+           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
+           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
+           so one rule covers the whole library. Behaviour when they ARE driven
+           is outside the supported input range.
 *******************************************************************************/
 
 package bram_tree_pkg;

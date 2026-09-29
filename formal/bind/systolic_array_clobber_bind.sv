@@ -1,10 +1,9 @@
 // Attaches hwpq_systolic_clobber to systolic_array
 //
 // Bound alone, without hwpq_spec, and with NO assumption about when writes may
-// be issued. It used to need one: before F-8 was fixed, a caller that asserted
-// i_wrt while full corrupted IB[0], and the properties below only held for a
-// caller that honoured o_write_ready. Now they hold unconditionally, which is
-// the stronger and correct statement - a refused command is inert.
+// be issued: the properties below hold unconditionally, which is the stronger
+// statement - a refused command is inert, so a caller that asserts i_wrt while
+// full cannot corrupt IB[0].
 //
 // HALF_SIZE is passed explicitly because it sizes the IB/OB ports - getting it
 // from QUEUE_SIZE independently would silently truncate if the DUT ever changed
@@ -29,16 +28,9 @@ bind systolic_array hwpq_systolic_clobber #(
 );
 
 
-// Reset harness -- the elaboration top for this module's proofs.
-//
-// the tool's `reset` takes a SIMPLE PIN constraint (compound expressions are
-// rejected, a tool diagnostic) and pins it inactive for all time after initialisation. So
-// `reset ~i_RSTn` makes a second reset unreachable: under that setup
-// c_reset_reasserted was PROVEN UNREACHABLE in 0.00 s, which means every
-// property in this effort was a statement about the post-first-reset run only,
-// and any defect needing a mid-operation reset was invisible. The only way to
-// keep i_RSTn free is a level above the DUT; driving it from
-// (i_init_RSTn & i_RSTn) moves the pinning onto i_init_RSTn instead.
+// Reset harness: the elaboration top for this module's proofs. The tool
+// holds the declared reset inactive after init; declaring i_init_RSTn keeps
+// the DUT's i_RSTn free for mid-operation resets.
 //
 // It lives in this file rather than its own because bind/ is already the
 // per-module formal glue. The bind above is unaffected: it targets the module

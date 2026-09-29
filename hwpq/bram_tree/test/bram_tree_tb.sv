@@ -3,10 +3,8 @@
 // It is enqueue-capable and single-instance, so ENQ_ENA=1 selects the
 // enqueue-enabled program.
 //
-// This shim used to import bram_tree_pkg, because the module was pkg-locked to
-// one size. Now that QUEUE_SIZE and DATA_WIDTH are module parameters it supplies
-// them the same way every other shim in the suite does. The values are the ones
-// the package used to fix, so the run is unchanged.
+// QUEUE_SIZE and DATA_WIDTH are module parameters, and this shim supplies them
+// the same way every other shim in the suite does.
 
 module bram_tree_tb;
   localparam int QUEUE_SIZE = 7;   // must be 2^k - 1
@@ -32,20 +30,11 @@ module bram_tree_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  // SIMULATION.md recommendation 4, the BRAM follow-up.
-  //
-  // This is the one interior check in the suite with a DEMONSTRATED defect class
-  // behind it. F-32 -- the replace-on-empty arm computing top_level.capacity + 1,
-  // which is 7 + 1 truncated to 0 in three bits -- left this module GREEN against
-  // the entire black-box formal spec. All ten interface asserts passed with the
-  // defect in place, because the design keeps two occupancy mechanisms and only
-  // the correct one reaches the ports. No amount of port-level checking finds it.
-  //
-  // Transcribed verbatim from a_root_capacity_agrees in
-  // formal/spec/hwpq_bram_tree_aux.sv, which is proven, so the invariant is not
-  // being invented here. Sampling is gated on fsm_idle exactly as the property
-  // is: the capacity field is mid-update during a descent, and a check that
-  // reads it there is F-19 all over again.
+
+  // top_level.capacity must equal QUEUE_SIZE - queue_size whenever idle; a
+  // naive off-by-one here silently corrupts free-space accounting at small
+  // widths. Transcribed from a_root_capacity_agrees in
+  // formal/spec/hwpq_bram_tree_aux.sv, which is proven.
   task automatic check_root_capacity();
     if (u_dut.fsm_idle)
       assert (u_dut.top_level.capacity == QUEUE_SIZE - u_dut.queue_size)
@@ -57,26 +46,16 @@ module bram_tree_tb;
       end
   endtask
 
-  // The heap invariant over the node memory.
+  // The heap invariant over the node memory: not proven for this module since
+  // formal stalls past DATA_WIDTH 2, so simulation covers what formal cannot.
   //
-  // NOT proven for this module, and that is the reason it belongs here rather
-  // than a reason to leave it out. Formal reaches this design only at
-  // DATA_WIDTH=2 -- two legal payloads once both sentinels are reserved, so an
-  // ordering property can tell a maximum from a non-maximum but cannot
-  // distinguish degrees among three or more. Simulation runs at DATA_WIDTH=16.
-  // Ordering among many distinct values is exactly the region the proofs cannot
-  // enter, which is what the division of labour in SIMULATION.md says the
-  // testbench should own.
-  //
-  // LAYOUT, read off the RTL rather than assumed. bram_inst.ram is indexed by
-  // heap position, children of p are 2p+1 and 2p+2, and the word is the packed
-  // struct {active, value[DATA_WIDTH-1:0], capacity[ADDRESS_WIDTH-1:0]}, so the
-  // active flag is the MSB. Position 0 is DEAD: the root lives in the top_level
-  // register, and ram[0] only ever holds what the reset sweep wrote. Comparing
-  // against ram[0] instead of top_level would be a false finding generator.
-  //
-  // Gated on fsm_idle, like every other check here. Mid-descent the memory is
-  // half-rewritten, and a window that opens while its signals are moving is F-19.
+  // LAYOUT: bram_inst.ram is indexed by heap position, children of p are 2p+1
+  // and 2p+2, and the word is the packed struct
+  // {active, value[DATA_WIDTH-1:0], capacity[ADDRESS_WIDTH-1:0]}, so the
+  // active flag is the MSB. Position 0 is DEAD: the root lives in the
+  // top_level register, and ram[0] only ever holds what the reset sweep wrote.
+  // Comparing against ram[0] instead of top_level would be a false finding
+  // generator. Gated on fsm_idle, since mid-descent the memory is half-rewritten.
   localparam int BT_TREE_DEPTH = $clog2(QUEUE_SIZE + 1);
   localparam int BT_NODES      = (1 << BT_TREE_DEPTH) - 1;
   localparam int BT_ADDR_W     = $clog2(BT_NODES);

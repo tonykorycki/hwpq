@@ -48,28 +48,23 @@ obj_dir
 build/
 
 # Formal scratch. run.sh puts EVERYTHING a run generates under
-# formal/fv_proj/<module>[_selftest][_ungated]/ - the tool's own scratch, the
-# console log, and the property summary - so this one line covers all of it.
-formal/fv_proj/
+# formal/fv_proj/<module>[_selftest][_ungated]/: the tool's own scratch, the
+# console log, and the property summary.
 formal/fv_proj/
 # a tool invoked directly from the repo root creates its own project dir
 fv_proj/
-fv_proj/
 
-# PRIVATE BACKENDS. A backend for a real tool names that tool, so it is written
-# locally and never committed; see formal/backend/README.md. Everything in
-# formal/backend/ is ignored EXCEPT the licence-free ones that ship with the
-# repo, so adding a new private backend needs no .gitignore change and cannot be
-# committed by forgetting one.
+# PRIVATE BACKENDS: local-only, see formal/backend/README.md.
 formal/backend/*
 !formal/backend/README.md
 !formal/backend/stub.tcl
 !formal/backend/stub.sh
 !formal/backend/dryrun.tcl
 !formal/backend/dryrun.sh
-# vendor_sim. vendor_sim is the only simulator on CEPool - iverilog and verilator are not
-# installed there - so running the shared testbenches drops these in whatever
-# directory vendor_sim was invoked from, which is usually the repo root.
+# vendor_sim is the only simulator on the machine that runs the real proofs;
+# iverilog and verilator are not installed there, so running the shared
+# testbenches drops these in whatever directory vendor_sim was invoked from,
+# which is usually the repo root.
 vendor_sim.d/
 vendor_sim.log
 vendor_sim.history

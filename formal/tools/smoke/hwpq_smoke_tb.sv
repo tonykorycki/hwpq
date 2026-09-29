@@ -2,7 +2,7 @@
 //
 // Purpose: prove that hwpq_spec.sv COMPILES, BINDS, and has the right POLARITY
 // 
-// Driven by formal/smoke.sh. Not part of the simulation regression in test/.
+// Driven by formal/tools/smoke.sh. Not part of the simulation regression in test/.
 `timescale 1ns/1ps
 module hwpq_smoke_tb;
 
@@ -36,16 +36,17 @@ module hwpq_smoke_tb;
     return DATA_WIDTH'($urandom_range(1, (1 << DATA_WIDTH) - 2));
   endfunction
 
-  // The spec's assumptions are ENVIRONMENT CONSTRAINTS. the tool honours them by
-  // never exploring a state that violates one; Verilator has no constraint
-  // solver and compiles `assume property` as an assert, so this driver has to
-  // satisfy them itself or checks 2 and 3 fail for the wrong reason.
+  // The spec's assumptions are ENVIRONMENT CONSTRAINTS. A formal tool honours
+  // them by never exploring a state that violates one; Verilator has no
+  // constraint solver and compiles `assume property` as an assert, so this
+  // driver has to satisfy them itself or checks 2 and 3 fail for the wrong
+  // reason.
   //
   // Two apply to the register_array/ENQ_ENA=1 configuration bound here:
-  //   am_payload_legal      -- i_data is never a reserved sentinel, so i_data is
+  //   am_payload_legal:       i_data is never a reserved sentinel, so i_data is
   //                            held at a legal value even between commands
   //                            rather than parked at '0.
-  //   am_tv_legal/_stable   -- tv is undriven on purpose (a free variable), and
+  //   am_tv_legal/_stable:    tv is undriven on purpose (a free variable), and
   //                            a floating tv reads as '0, which am_tv_legal
   //                            excludes. Pin it to one legal, constant value.
   initial begin

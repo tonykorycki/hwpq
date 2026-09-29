@@ -1,7 +1,7 @@
 # formal/backend/stub.tcl - a backend that needs no licence.
 #
 # Implements the contract in formal/backend/README.md against globals instead of
-# a tool, so formal/smoke.sh can exercise verdict.tcl's pass/fail/exit-code
+# a tool, so formal/tools/smoke.sh can exercise verdict.tcl's pass/fail/exit-code
 # decisions anywhere. It proves nothing about a design.
 #
 # Driven by:

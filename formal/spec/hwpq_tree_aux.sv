@@ -1,22 +1,17 @@
 `default_nettype none
-// white-box addendum for the register tree designs
+// White-box addendum for the register tree designs.
 //
-// Separate from hwpq_spec.sv on purpose. The shared spec reads only the six
-// interface ports, which is what lets it bind to every architecture unchanged.
-// This file reaches INSIDE one family, so keeping the two apart is what stops
-// the portable spec from acquiring module-specific dependencies.
+// Kept separate from hwpq_spec.sv, which reads only the six interface ports and
+// so binds to every architecture unchanged. This file reaches inside one family,
+// and keeping the two apart stops the portable spec acquiring module-specific
+// dependencies.
 //
-// WHAT THIS IS FOR
-//
-// register_tree does not derive head_valid from a heap scan. It derives it from
-// a hand-computed countdown loaded with CLIMB_CYCLES/SINK_CYCLES
-// (register_tree.sv:50-52, :312-324). The timer is a CLAIM - "by now the head
-// is trustworthy" - and asserting the timer against itself would prove nothing.
-//
-// So invert it: prove the claim is CONSERVATIVE. Whenever the timer says the
-// head is valid, the heap really does hold. Simulation can only ever sample
-// whether a hand-computed cycle count was large enough; this decides it for
-// every reachable state at once.
+// register_tree derives head_valid from a hand-computed countdown loaded with
+// CLIMB_CYCLES/SINK_CYCLES rather than from a heap scan. The timer is a claim
+// that the head is trustworthy by now, so asserting it against itself proves
+// nothing. Inverting it proves the claim is conservative: whenever the timer
+// says the head is valid, the heap does hold. Simulation can only sample whether
+// the cycle count was large enough; this decides it for every reachable state.
 //
 // `heap_holds` is the design's own definition, taken verbatim from the
 // commented-out detector at register_tree.sv:338-344 - the alternative the
@@ -55,7 +50,7 @@ module hwpq_tree_aux #(
     end
   end
 
-  // THE LEMMA: the timer never claims validity before the heap has settled.
+  // The timer never claims validity before the heap has settled.
   a_timer_is_sound : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       head_valid |-> heap_holds);
 

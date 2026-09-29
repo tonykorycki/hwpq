@@ -1,6 +1,5 @@
 /*******************************************************************************
   Module Name: bram_tree_pipelined
-  Date: 2026/06/23
   Description: A pipelined priority queue implementation using a binary max-heap
                structure stored in block RAM, with the top few levels
                kept in registers. Supports enqueue, dequeue, and replace
@@ -13,16 +12,13 @@
           i_wrt - Write/insert command (enqueue operation)
           i_read - Read/pop command (dequeue operation)
           i_data - Input data to be inserted (or used for replace)
-Outputs:    o_write_ready - High when the queue has room to accept a write
-            o_read_ready - High when the queue holds data available to read
-            o_data - Output data from the highest priority element
-  Reserved payloads: '0 and all-ones are sentinels, not data. '0 is the empty
-           slot and the dequeue mechanism (write it into the head and let the
-           sort network sink it); all-ones is the max-priority placeholder an
-           ENQ_ENA=0 build resets into. Neither may be driven on i_data, in
-           EITHER build -- the legal alphabet is 2**DATA_WIDTH - 2 everywhere,
-           so one rule covers the whole library. Behaviour when they ARE driven
-           is outside the supported input range.
+  Outputs: o_write_ready - High when the queue has room to accept a write
+           o_read_ready - High when the queue holds data available to read
+           o_data - Output data from the highest priority element
+  Constraints: QUEUE_SIZE must be 2^k - 1, the full-tree node count.
+               '0 and all-ones are reserved payloads, never legal on i_data.
+               Reset leaves the queue physically full of all-ones placeholders
+               while queue_size reports 0, so the queue never advertises full.
 *******************************************************************************/
 
 module bram_tree_pipelined #(
@@ -103,11 +99,9 @@ module bram_tree_pipelined #(
   logic accept_ok;                  // quiescent and initialised: may take a command
   logic head_servable;              // the root holds data, not a placeholder
 
-  // Reset fill. The BRAMs have no reset port, and the `initial` block in
-  // rams_tdp_rf_rf.sv is simulation-only -- synthesis takes it as a power-up value
-  // and a formal tool ignores it outright. So nothing restored the all-ones
-  // placeholder fill: a reset arriving with data in the queue cleared the
-  // registers and left the memory holding stale nodes behind a queue_size of 0.
+  // The BRAMs have no reset port, and the `initial` block in rams_tdp_rf_rf.sv is
+  // simulation-only: synthesis takes it as a power-up value only. The fill
+  // sequencer below re-establishes the all-ones placeholder fill on every reset.
   // FILL_LAST is one past the last address because addr/din/we are registered, so
   // the write issued at NODES_NEEDED-1 does not commit until the cycle after.
   localparam integer FILL_LAST = NODES_NEEDED + 1;
@@ -186,10 +180,9 @@ module bram_tree_pipelined #(
   always_comb begin : fsm_comb
     next_state = IDLE;  // default next state, latch preventing
     // Parked during the reset fill. IDLE otherwise advances to READ_MEM
-    // unconditionally, so the walk free-runs with no command outstanding -- which
-    // during the fill means it drives the comparator from whatever the memory is
-    // reading back mid-sweep, and is free to write that result over the fill on
-    // the cycle `filling` drops.
+    // unconditionally, so without this guard the walk would free-run with no
+    // command outstanding, driving the comparator from memory mid-sweep and
+    // writing that result over the fill.
     if (filling) begin
       next_state = IDLE;
     end else begin
@@ -326,7 +319,7 @@ module bram_tree_pipelined #(
         end else if (parent_lvl > 'd1) begin
           next_addr_a[parent_lvl]   = parent_idx;
           // The per-level arrays are [2:TREE_DEPTH-1], so [parent_lvl+1] is out
-          // of range at the deepest level -- where there are no children to
+          // of range at the deepest level, where there are no children to
           // address anyway. Simulation discarded these writes silently; the
           // guard says so.
           if (parent_lvl < TREE_DEPTH - 1) begin
@@ -475,23 +468,21 @@ module bram_tree_pipelined #(
     end
   end
 
-  // There is deliberately no enqueue branch: this module has no enqueue path in the FSM at all.
-  // The counter used to increment on (i_wrt && !i_read) so a master driving i_wrt alone bumped queue_size with no data ever
-  // inserted, over-reporting occupancy
+  // No enqueue branch: this module has no enqueue path in the FSM. Counting
+  // (i_wrt && !i_read) here would let a master driving i_wrt alone bump queue_size
+  // with nothing ever inserted, over-reporting occupancy.
   always_comb begin : queue_size_comb
     next_queue_size = queue_size;
     if (cmd_dequeue) begin
       next_queue_size = queue_size - 1; // cmd_dequeue is gated on !empty so this cannot underflow
     end else if (cmd_replace) begin
-      // The full guard is load-bearing. o_data == '1 means the root still holds a
-      // placeholder, which is normally the fill phase -- but the root can hold one
-      // while the queue is already occupied, so without the guard a replace in
-      // that state counts an insert the queue has no room for and queue_size runs
-      // past QUEUE_SIZE. The enqueue and dequeue arms were always guarded; this
-      // one was not.
-      if (o_data == '1 && queue_size < QUEUE_SIZE) begin //special case for following a reset, we need to replace all the values in
+      // o_data == '1 means the root still holds a placeholder. That is normally the
+      // fill phase, but the root can hold one while the queue is already occupied,
+      // so the queue_size < QUEUE_SIZE guard is load-bearing: without it a replace
+      // in that state would count an insert the queue has no room for.
+      if (o_data == '1 && queue_size < QUEUE_SIZE) begin
         next_queue_size = queue_size + 1;
-      end else if (queue_size == 0 && i_data != 0) begin  // this would be a special case for replace, function as enqueue
+      end else if (queue_size == 0 && i_data != 0) begin  // replace on empty acts as enqueue
         next_queue_size = queue_size + 1;
       end else begin
         next_queue_size = queue_size;
@@ -516,11 +507,11 @@ module bram_tree_pipelined #(
 
   // Sift-down completion detector
   
-  //   root_done -- the root compare-swap has been written back, so level_0 now
+  //   root_done: the root compare-swap has been written back, so level_0 now
   //                holds the true maximum.  o_data is trustworthy from here,
   //                even though the walk may still be sifting deeper down.
 
-  //   sift_done -- the whole walk terminated.  Only now may a new command be
+  //   sift_done: the whole walk terminated.  Only now may a new command be
   //                accepted; one arriving earlier abandons the walk part-way
   //                down and leaves the heap broken.
   
@@ -549,29 +540,27 @@ module bram_tree_pipelined #(
   end
 
   // "May accept a command": quiescent AND past the reset fill. One notion, used by
-  // both the ready ports and the command decode, so the two cannot drift apart --
-  // that gap is the defect F-7 recorded on systolic_array and the one fixed here
-  // when o_read_ready was gated on root_done.
+  // both the ready ports and the command decode, so the two cannot drift apart.
   assign accept_ok = sift_done && !filling;
 
-  // Head-sentinel gate -- the F-1 containment the four register architectures
-  // already carry. A replace-only queue boots physically full of all-ones
-  // placeholders while queue_size reports 0, so during the fill phase the root can
-  // hold a placeholder the queue must not hand out as data.
+  // Head-sentinel gate, the same containment the four register architectures
+  // carry: this queue boots physically full of all-ones placeholders while
+  // queue_size reports 0, so during the fill phase the root can hold a
+  // placeholder the queue must not hand out as data.
   //
-  // The term is on the COMMAND as well as on the port. Gating the port alone would
-  // leave cmd_dequeue accepting a dequeue that o_read_ready does not advertise --
-  // the ready/accept gap of F-7, pointing the other way -- and the containment is
-  // precisely that a contract-violating dequeue becomes inert rather than
+  // The term is on the COMMAND as well as on the port. Gating the port alone
+  // would leave cmd_dequeue accepting a dequeue that o_read_ready does not
+  // advertise, so a contract-violating dequeue becomes inert instead of
   // corrupting the size accounting.
   assign head_servable = (level_0 != '1);
 
   assign cmd_dequeue = !i_wrt && i_read && accept_ok && (queue_size != 0) && head_servable;
   assign cmd_replace = i_wrt && i_read && accept_ok;
 
-  // The replace state does not execute until the cycle after the command is accepted, so sampling i_data there would read
-  // whatever the master happens to be driving one cycle later.  Every other queue in this repo captures i_data in the same cycle, 
-  // so latching the value here makes this module honor the same contract, and needs no special behavious from master
+  // The replace state does not execute until the cycle after the command is
+  // accepted, so sampling i_data there would read whatever the master drives one
+  // cycle later. Latching the value here matches every other queue in this repo,
+  // which captures i_data in the accept cycle.
   always_ff @(posedge i_CLK or negedge i_RSTn) begin : cmd_data_seq
     if (!i_RSTn) begin
       cmd_data <= '0;
@@ -584,10 +573,10 @@ module bram_tree_pipelined #(
   // Assignments for status and output.
   //-------------------------------------------------------------------------
   assign o_write_ready = accept_ok;
-  // root_done rises on the ROOT write-back, the first of the walk; sift_done only
-  // when the walk terminates, up to TREE_DEPTH-1 levels and ~4 cycles per level
-  // later. Advertising a read on root_done meant the module offered a dequeue it
-  // would then silently discard, because cmd_dequeue is gated on sift_done.
+  // root_done rises on the ROOT write-back, the first step of the walk; sift_done
+  // only when the walk terminates, up to TREE_DEPTH-1 levels and ~4 cycles per
+  // level later. Gating on root_done alone would advertise a dequeue that
+  // cmd_dequeue (gated on sift_done) would then silently discard.
   //
   // Gating on sift_done costs nothing: no command could be accepted inside that
   // window anyway. The only thing lost is an early data-valid hint, and the

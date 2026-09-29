@@ -3,7 +3,6 @@
 # Sourced by formal/drive.tcl after the design is analyzed, elaborated, clocked
 # and reset. This file only knows how to prove, classify the result, and decide
 # pass/fail. Every tool-specific operation goes through the backend:: contract
-# in formal/backend/README.md, so nothing here names a vendor.
 #
 # CALLER CONTRACT:
 #   HWPQ_MODULE          module name, used in the verdict banner.        REQUIRED
@@ -43,7 +42,7 @@ proc hwpq_plist {type statuses} {
 #
 # Properties are reported as <task>::<module>.<inst>.<generate>.<name>, which is
 # DOT-separated. `file tail` splits on "/" and so returns the whole string
-# untouched -- an HWPQ_EXPECT_CEX entry could then never match anything.
+# untouched, so an HWPQ_EXPECT_CEX entry could then never match anything.
 proc hwpq_leaf {p} {
     return [lindex [split $p .] end]
 }
@@ -54,25 +53,12 @@ proc hwpq_leaf {p} {
 # two write ports touch different addresses and the non-blocking assignments
 # land on different elements, so nothing is ever observed to go wrong. In formal
 # it means the TOOL resolves the drivers, and what it resolves to is not what
-# the design computes. Writes stop being reliably observable -- a write to
-# address 0 need not be there on the next cycle -- and every memory-dependent
+# the design computes. Writes stop being reliably observable - a write to
+# address 0 need not be there on the next cycle - and every memory-dependent
 # property is then decided against contents the tool was free to invent.
 #
-# That is F-21, the most expensive finding of this effort. The tool announced it
-# on every run of bram_tree_pipelined, starting with the very first, as
-# multiple-driver warnings in the elaboration log. Nobody read them for the life
-# of the module, because nothing here treated them as fatal. Six properties that
-# failed for this reason were reported as design defects; five were retracted
-# (F-17), and one had been escalated as requiring a rework of the sift walk.
-# There was nothing to rework.
-#
 # The gate runs BEFORE proving. A run against a resolved-driver model does not
-# produce a weaker result, it produces a meaningless one, so there is nothing to
-# spend proof time on and nothing to trade off -- which is also why there is
-# deliberately NO override switch. `bram_tree` still carries its own copy of the
-# defect (7 signals, 140 bits) and this gate will refuse the run until
-# hwpq/bram_tree/src/rams_tdp_rf_rf.sv is fixed. That is the intended
-# sequencing, not an obstacle to work around.
+# produce a usable result.
 proc hwpq_multiple_driven_gate {} {
     puts "\n=== multiple-driver check ======================================"
     if {[catch {set md [backend::design_info multiple_driven]} err]} {
@@ -97,7 +83,7 @@ proc hwpq_multiple_driven_gate {} {
     puts "    to see both drivers and the bit count. The usual cause is a vendor"
     puts "    RAM template with one always block per port; merging them into a"
     puts "    single process is sound wherever both ports share a clock."
-    puts "    See F-21 in formal/FINDINGS.md."
+    puts "    See F-21 in formal/docs/results.md."
     puts ""
     puts "    RESULT: FAIL"
     puts ""
@@ -111,11 +97,11 @@ proc hwpq_multiple_driven_gate {} {
 # declare, and the tool's own error from trying would end the run before this
 # could say why.
 #
-# The "ELABORATION FAILED:" line is what regress.sh keys the F-6 row on, in
-# place of the tool's own diagnostic. It counts failed BUILD STEPS, not bad
-# source sites. Sites are the tool's to report and are not portably countable:
-# F-6's log carries two out-of-range errors plus a follow-on "could not be
-# elaborated" error, so a line count gives 3 where the finding records 2.
+# The "ELABORATION FAILED:" line is what regress.sh keys an elaboration-failure
+# row on, in place of the tool's own diagnostic. It counts failed BUILD STEPS,
+# not bad source sites: sites are the tool's to report and are not portably
+# countable, so a source-error count and a build-step count can legitimately
+# disagree.
 proc hwpq_elab_gate {} {
     if {[catch {set n [backend::elab_errors]} err]} {
         puts "FORMAL ERROR: backend::elab_errors failed: $err"

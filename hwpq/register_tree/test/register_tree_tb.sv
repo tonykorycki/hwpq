@@ -26,14 +26,13 @@ module register_tree_tb;
   );
 
   assign settled = o_write_ready || o_read_ready;
-  // SIMULATION.md recommendation 4: the heap invariant, by hierarchical
-  // reference. `queue` is an implicit binary heap -- children of i are 2i+1 and
-  // 2i+2 -- and NODES_NEEDED == QUEUE_SIZE for the 2^k-1 sizes this module
-  // requires. Safe to check at every settled point because formal proves exactly
-  // this: a_timer_is_sound in formal/spec/hwpq_tree_aux.sv establishes
-  // head_valid |-> heap_holds, so the settle timer never releases the head
-  // before the invariant holds. The port cannot see a violation -- a differently
-  // shaped heap still hands back a plausible o_data.
+  // The heap invariant, checked by hierarchical reference. `queue` is an
+  // implicit binary heap (children of i are 2i+1, 2i+2), and NODES_NEEDED ==
+  // QUEUE_SIZE for the 2^k-1 sizes this module requires. Safe to check at
+  // every settled point: a_timer_is_sound in formal/spec/hwpq_tree_aux.sv
+  // proves head_valid implies heap_holds, so the settle timer never releases
+  // the head before the invariant holds. The port alone cannot see a
+  // violation: a differently shaped heap still returns a plausible o_data.
   task automatic check_heap();
     for (int i = 0; i < QUEUE_SIZE; i++) begin
       if (2 * i + 1 < QUEUE_SIZE)

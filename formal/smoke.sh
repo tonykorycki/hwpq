@@ -8,7 +8,7 @@
 #   1. lint      -- the spec and bind elaborate together under Verilator
 #   2. polarity+ -- normal build: the plumbing property must NOT fire
 #   3. polarity- -- HWPQ_SELFTEST build: the self-test property MUST fire
-#   4. tcl       -- common.tcl parses, and its verdict logic returns the right
+#   4. verdict   -- verdict.tcl parses, and its decisions return the right
 #                   exit codes for clean / cex / unreachable-cover /
 #                   no-asserts / expected-cex cases
 #
@@ -93,8 +93,8 @@ else
 fi
 
 echo
-echo "=== 4. tcl: common.tcl parses and its verdict logic is correct ==="
-tclsh "${SCRIPT_DIR}/smoke/smoke_tcl.tcl" "${REPO_ROOT}" && ok "common.tcl verdict logic" || bad "common.tcl verdict logic"
+echo "=== 4. verdict: verdict.tcl parses and its decisions are correct ==="
+tclsh "${SCRIPT_DIR}/smoke/smoke_tcl.tcl" "${REPO_ROOT}" && ok "verdict logic" || bad "verdict logic"
 
 echo
 echo "============================================================"

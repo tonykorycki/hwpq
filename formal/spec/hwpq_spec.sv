@@ -115,32 +115,6 @@ module hwpq_spec #(
   am_payload_legal : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
       i_data != '0 && i_data != '1);
 
-  // `settled &&` is load-bearing. o_write_ready is !full AND not-busy, so a bare
-  // !o_write_ready also latches on the first BUSY cycle - which on a sequential
-  // module means the latch fires almost immediately and the assumption stops
-  // constraining anything. Gating on settled is what makes this mean "reported
-  // full while quiescent". It made no difference on the combinational modules,
-  // which is exactly why it survived there. (F-5.)
-  //
-  // Declared at module scope rather than inside g_fill_first because the
-  // occupancy properties below are scoped on it too.
-  logic filled_once;
-  always_ff @(posedge i_CLK or negedge i_RSTn) begin
-    if (!i_RSTn) filled_once <= 1'b0;
-    else if (settled && !o_write_ready) filled_once <= 1'b1;
-  end
-
-  // Under the fill-before-read convention the caller does not read during the
-  // fill phase, so o_read_ready is unobservable there BY CONTRACT and the
-  // occupancy properties must not assert over it. CH-4 always meant to cover
-  // that whole window; am_fill_before_read covered only half of it, forbidding
-  // the dequeue while the occupancy asserts kept running over the same cycles.
-  // Same shape as F-5: an assumption narrower than it claimed to be.
-  //
-  // Folds to constant 1 wherever the convention does not apply, so enqueue-capable
-  // and --ungated builds are unaffected and still assert over every cycle.
-  wire fill_scope = (ENQ_ENA || !ASSUME_FILL_FIRST) || filled_once;
-
   generate
     // Guarded on HAS_BUSY as well as the parameter: with no busy state the
     // antecedent is unsatisfiable, so this constrains nothing and only leaves
@@ -187,10 +161,6 @@ module hwpq_spec #(
     //
     // HOLE CH-4: any bug that needs a read during the fill phase is now
     // unreachable. Set ASSUME_FILL_FIRST=0 for an ungated run.
-    if (!ENQ_ENA && ASSUME_FILL_FIRST) begin : g_fill_first
-      am_fill_before_read : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
-          !filled_once |-> !cmd_dequeue);
-    end
   endgenerate
 
 
@@ -313,6 +283,50 @@ module hwpq_spec #(
     if (!i_RSTn) occ <= '0;
     else occ <= occ_next;
   end
+
+  // ---------------------------------------------------------------------------
+  // CH-4 -- the fill-before-read convention
+  // ---------------------------------------------------------------------------
+  //
+  // Lives HERE, below occ, and not up with the other assumptions, because on a
+  // HAS_FULL=0 module it has to be defined in terms of the spec's own occupancy
+  // rather than in terms of a port that never advertises fullness.
+  //
+  // The original latch was `settled && !o_write_ready`, which reads as "reported
+  // full while quiescent". That is right only when !o_write_ready MEANS full. On
+  // bram_tree_pipelined o_write_ready is sift_done -- quiescence, not capacity --
+  // and o_read_ready is gated on sift_done too, so `settled` collapses to
+  // o_write_ready and the latch condition becomes `x && !x`. filled_once then
+  // never sets, am_fill_before_read forbids EVERY dequeue for all time, and the
+  // build proves a great deal vacuously: c_dequeue_fires and three property
+  // preconditions came back UNREACHABLE.
+  //
+  // Note the symmetry with F-5, which fixed this latch in the other direction. It
+  // added `settled &&` because a bare !o_write_ready fired on the first busy
+  // cycle. Both bugs are the same mistake -- deciding "is it full?" by looking at
+  // a signal that only sometimes answers that question -- and the HAS_FULL
+  // parameter is exactly the thing that says whether it does. An assumption too
+  // WEAK produces a counterexample and gets noticed; one too STRONG proves
+  // everything vacuously. Only the cover set catches the second, and here it did.
+  logic filled_once;
+  always_ff @(posedge i_CLK or negedge i_RSTn) begin
+    if (!i_RSTn) filled_once <= 1'b0;
+    else if (settled && (HAS_FULL ? !o_write_ready : (occ >= OCC_W'(CAPACITY))))
+      filled_once <= 1'b1;
+  end
+
+  generate
+    if (!ENQ_ENA && ASSUME_FILL_FIRST) begin : g_fill_first
+      am_fill_before_read : assume property (@(posedge i_CLK) disable iff (!i_RSTn)
+          !filled_once |-> !cmd_dequeue);
+    end
+  endgenerate
+
+  // Under the convention the caller does not read during the fill phase, so
+  // o_read_ready is unobservable there BY CONTRACT and the occupancy properties
+  // must not assert over it. Folds to constant 1 wherever the convention does not
+  // apply, so enqueue-capable and --ungated builds assert over every cycle.
+  wire fill_scope = (ENQ_ENA || !ASSUME_FILL_FIRST) || filled_once;
 
   a_occ_bounded : assert property (@(posedge i_CLK) disable iff (!i_RSTn)
       settled |-> occ <= OCC_W'(CAPACITY));

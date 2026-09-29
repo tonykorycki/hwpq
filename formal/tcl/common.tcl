@@ -20,6 +20,11 @@
 #       help backend::property_list
 #       backend::property_list -include {type {assert}}
 #       backend::property_info -list <one-property-name>
+#   The same applies to the multiple-driver gate, which uses
+#       backend::design_info -list multiple_driven -silent
+#   Verified against a recent vendor release: returns {} on a clean design and a
+#   list of signal names on a dirty one. If the keyword is ever renamed, `help
+#   backend::design_info` prints the accepted -list arguments.
 
 if {![info exists HWPQ_MODULE]} {
     puts "FORMAL ERROR: caller did not set HWPQ_MODULE before sourcing common.tcl"
@@ -51,6 +56,67 @@ proc hwpq_leaf {p} {
     return [lindex [split $p .] end]
 }
 
+# hwpq_multiple_driven_gate - refuse to prove against a multiply-driven design.
+#
+# A variable driven from two `always` blocks is a lint nit in simulation: the two
+# write ports touch different addresses and the non-blocking assignments land on
+# different elements, so nothing is ever observed to go wrong. In formal it means
+# the TOOL resolves the drivers, and what it resolves to is not what the design
+# computes. Writes stop being reliably observable -- a write to address 0 need not
+# be there on the next cycle -- and every memory-dependent property is then
+# decided against contents the tool was free to invent.
+#
+# That is F-21, the most expensive finding of this effort. the tool announced it on
+# every run of bram_tree_pipelined, starting with the very first:
+#
+#   [WARN (a tool diagnostic)] rams_tdp_rf_rf.sv(36): net 'ram[6][2]' is constantly driven
+#                     from multiple places
+#   [WARN (a tool diagnostic)] rams_tdp_rf_rf.sv(43): found another driver here
+#   INFO  (a tool diagnostic): Number of multiple-driven bits in design: 21
+#
+# Nobody read them for the life of the module, because nothing here treated them
+# as fatal. Six properties that failed for this reason were reported as design
+# defects; five were retracted (F-17), and one of them had been escalated as
+# requiring a rework of the sift walk. There was nothing to rework.
+#
+# The gate runs BEFORE `prove -all`. A run against a resolved-driver model does
+# not produce a weaker result, it produces a meaningless one, so there is nothing
+# to spend proof time on and nothing to trade off -- which is also why there is
+# deliberately NO override switch. `bram_tree` still carries its own copy of the
+# defect (7 signals, 140 bits) and this gate will refuse the run until
+# hwpq/bram_tree/src/rams_tdp_rf_rf.sv is fixed. That is the intended sequencing,
+# not an obstacle to work around.
+proc hwpq_multiple_driven_gate {} {
+    puts "\n=== multiple-driver check ======================================"
+    if {[catch {set md [backend::design_info -list multiple_driven -silent]} err]} {
+        puts "FORMAL ERROR: backend::design_info -list multiple_driven failed"
+        puts "FORMAL ERROR: $err"
+        puts "FORMAL ERROR: see VERSION SENSITIVITY in formal/tcl/common.tcl"
+        exit 2
+    }
+    if {[llength $md] == 0} {
+        puts "    none - every signal has a single driver."
+        return
+    }
+    puts "    MULTIPLY-DRIVEN SIGNALS ([llength $md]):"
+    foreach sig $md { puts "        $sig" }
+    puts ""
+    puts "    the tool resolves these drivers itself, so their values are NOT the"
+    puts "    ones the RTL computes. Any property that reads them is decided"
+    puts "    against contents the tool chose. Do not prove, do not report, and"
+    puts "    do NOT treat a counterexample from such a run as a design defect."
+    puts ""
+    puts "    Search the elaboration log above for a tool diagnostic / a tool diagnostic to see"
+    puts "    both drivers, and a tool diagnostic for the bit count. The usual cause is a"
+    puts "    vendor RAM template with one always block per port; merging them"
+    puts "    into a single process is sound wherever both ports share a clock."
+    puts "    See F-21 in formal/FINDINGS.md."
+    puts ""
+    puts "    RESULT: FAIL"
+    puts ""
+    exit 1
+}
+
 proc hwpq_group {label items} {
     if {[llength $items] == 0} { return }
     puts "    $label ([llength $items]):"
@@ -61,11 +127,16 @@ proc hwpq_group {label items} {
 #
 #   0  every assert proven (or an expected cex fired); every cover reachable
 #   1  a real proof failure - unexpected cex, missing expected cex,
-#      undetermined, unreachable cover, or bounded-only with ALLOW_BOUNDED=0
+#      undetermined, unreachable cover, bounded-only with ALLOW_BOUNDED=0, or a
+#      multiply-driven design (checked BEFORE proving; see the gate below)
 #   2  the script itself could not run
 
 proc hwpq_prove_and_exit {} {
     global HWPQ_MODULE HWPQ_ALLOW_BOUNDED HWPQ_EXPECT_CEX
+
+    # Model sanity BEFORE proof effort: a multiply-driven design cannot be
+    # proved against, only proved something about. Exits 1 on its own if dirty.
+    hwpq_multiple_driven_gate
 
     # assumption sanity
     puts "\n=== assumption check ==========================================="

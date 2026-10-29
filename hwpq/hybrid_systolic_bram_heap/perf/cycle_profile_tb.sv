@@ -1,18 +1,22 @@
-// Equal-mix cycle profiler for hybrid_systolic_heap: N enqueues, then M ops drawn 1/3 each
-// enqueue, dequeue and replace. Prints mean cycles per op and the dequeue cost split by the op
-// before it (RESULT), and what each cycle a read waits is waiting on, per read and split by the
-// op before it (WAIT_after_<op>), all as key=value pairs. Run by equal_mix.sh.
+// Cycle profiler for hybrid_systolic_heap, in one of two modes. Run by cycle_profile.sh.
+//   mix (default)  N enqueues, then M ops drawn 1/3 each enqueue, dequeue and replace. Prints the
+//                  mean cost per op type and of dequeues split by the op before them (RESULT), and
+//                  the read waits by cause, split by the op before the read (WAIT_after_<op>).
+//   STREAM         N enqueues (fill), N dequeues (drain), a refill, then N replaces. Prints the
+//                  mean cost per op of each phase (RESULT), and the read waits by cause for the
+//                  drain and replace phases (WAIT_drain, WAIT_replace).
+// All values are key=value pairs; waits are in cycles per read.
 //
 // An op's cost is the cycles it is presented until accepted: it is driven at a negedge, its ready
 // is sampled 1 ns later, and the DUT accepts it at the next posedge. A stall is charged to the op
 // that waits on it, and the next op is driven in the cycle after an acceptance.
 //
-//   N, M, CAP   fill depth, measured op count, and capacity (all required)
+//   N, CAP      fill depth and capacity (required); M, the mix's op count (required for mix)
 //   MONO=1/-1   each value >= / <= the one before, in steps of 0 to STEP (3); otherwise uniform
 // Run with +seed=<n> to pick the random sequence.
 `timescale 1ns/1ps
 import bram_tree_pkg::*;
-module equal_mix_tb;
+module cycle_profile_tb;
 `ifndef STEP
   `define STEP 3
 `endif
@@ -63,12 +67,6 @@ module equal_mix_tb;
     rd  = 0;
   endtask
 
-  longint total [3], count [3];
-  longint deq_total [3], deq_count [3];  // dequeues, by the op before them
-  longint reads_after [3];                // dequeues and replaces, by the op before them
-  op_t    prev = ENQ;
-  logic   measuring = 0;
-
   // Why a read waits: first match wins, in the order of the terms of the read-ready decode.
   localparam int N_CAUSES = 7;
   function automatic string cause_name(int c);
@@ -96,24 +94,71 @@ module equal_mix_tb;
     return 6;
   endfunction
 
-  longint waits [3][N_CAUSES];  // [op before][cause]
+  // Waits are counted into a bucket: the op before the read in mix mode, the phase in stream mode.
+  longint waits [3][N_CAUSES];  // [bucket][cause]
+  op_t    bucket = ENQ;
+  logic   measuring = 0;
   // Sampled after run_op's own sample point, while the op is still on the pins.
   always @(negedge clk) begin
     #2;
-    if (measuring && rd && !rrdy) waits[prev][cause()]++;
+    if (measuring && rd && !rrdy) waits[bucket][cause()]++;
   end
 
-  initial begin
-    op_t kind;
-    int  cycles, occupancy;
+  // print_waits <tag> <bucket> <reads>: one line of wait cycles per read for a bucket.
+  task automatic print_waits(input string tag, input op_t b, input longint reads);
+    $write("%s", tag);
+    for (int c = 0; c < N_CAUSES; c++)
+      $write(" %s=%.4f", cause_name(c), real'(waits[b][c]) / reads);
+    $write("\n");
+  endtask
 
+  task automatic reset_dut();
     // Reset, then wait out the tree memory initialisation, during which no command is accepted.
     #1;
     repeat (4) @(negedge clk);
     rstn = 1;
     while (!wrdy) @(negedge clk);
     @(negedge clk);
+  endtask
 
+`ifdef STREAM
+  // phase <kind> <mean>: N back-to-back ops of one kind, counting their read waits in its bucket.
+  task automatic phase(input op_t kind, output real mean);
+    longint total = 0;
+    int     cycles;
+    bucket    = kind;
+    measuring = 1;
+    for (int i = 0; i < `N; i++) begin
+      run_op(kind, cycles);
+      total += cycles;
+    end
+    measuring = 0;
+    mean = real'(total) / `N;
+  endtask
+
+  initial begin
+    real fill_c, drain_c, replace_c;
+    int  cycles;
+    reset_dut();
+    phase(ENQ, fill_c);
+    phase(DEQ, drain_c);
+    for (int i = 0; i < `N; i++) run_op(ENQ, cycles);
+    phase(REP, replace_c);
+    $display("RESULT fill=%.4f drain=%.4f replace=%.4f", fill_c, drain_c, replace_c);
+    print_waits("WAIT_drain", DEQ, `N);
+    print_waits("WAIT_replace", REP, `N);
+    $finish;
+  end
+
+`else
+  longint total [3], count [3];
+  longint deq_total [3], deq_count [3];  // dequeues, by the op before them
+  longint reads_after [3];                // dequeues and replaces, by the op before them
+
+  initial begin
+    op_t kind;
+    int  cycles, occupancy;
+    reset_dut();
     for (int i = 0; i < `N; i++) run_op(ENQ, cycles);
     occupancy = `N;
     measuring = 1;
@@ -128,11 +173,11 @@ module equal_mix_tb;
       total[kind] += cycles;
       count[kind]++;
       if (kind == DEQ) begin
-        deq_total[prev] += cycles;
-        deq_count[prev]++;
+        deq_total[bucket] += cycles;
+        deq_count[bucket]++;
       end
-      if (kind != ENQ) reads_after[prev]++;
-      prev = kind;
+      if (kind != ENQ) reads_after[bucket]++;
+      bucket = kind;
     end
     measuring = 0;
 
@@ -142,14 +187,12 @@ module equal_mix_tb;
     $display("RESULT deq_after_enq=%.4f deq_after_deq=%.4f deq_after_rep=%.4f",
              real'(deq_total[ENQ]) / deq_count[ENQ], real'(deq_total[DEQ]) / deq_count[DEQ],
              real'(deq_total[REP]) / deq_count[REP]);
-    for (int p = 0; p < 3; p++) begin
-      $write("WAIT_after_%s", p == ENQ ? "enq" : (p == DEQ ? "deq" : "rep"));
-      for (int c = 0; c < N_CAUSES; c++)
-        $write(" %s=%.4f", cause_name(c), real'(waits[p][c]) / reads_after[p]);
-      $write("\n");
-    end
+    print_waits("WAIT_after_enq", ENQ, reads_after[ENQ]);
+    print_waits("WAIT_after_deq", DEQ, reads_after[DEQ]);
+    print_waits("WAIT_after_rep", REP, reads_after[REP]);
     $finish;
   end
+`endif
 
   initial begin
     #100000000;

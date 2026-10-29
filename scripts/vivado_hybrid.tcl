@@ -1,16 +1,19 @@
 # Synthesise hybrid_systolic_heap once, implement it at rising clock targets, and log each point
 # in the library sweep format that py-scripts/analysis_py parses.
 # Usage: vivado -mode batch -nojournal -nolog -source scripts/vivado_hybrid.tcl \
-#          -tclargs <data_width> <tree_queue_size> <result_dir> <work_dir> [tree_count]
+#          -tclargs <data_width> <tree_queue_size> <result_dir> <work_dir> \
+#                   [tree_count] [systolic_size]
 # <work_dir> receives the checkpoints and, for the first violating target, the path reports.
 # Ports carry no I/O delays, matching the library sweeps: paths to and from pins are untimed.
 
-lassign $argv data_width tree_qs result_dir work_dir tree_count
+lassign $argv data_width tree_qs result_dir work_dir tree_count systolic_qs
 if {$work_dir eq ""} {
-  puts "Usage: -tclargs <data_width> <tree_queue_size> <result_dir> <work_dir> \[tree_count\]"
+  puts "Usage: -tclargs <data_width> <tree_queue_size> <result_dir> <work_dir>\
+    \[tree_count\] \[systolic_size\]"
   exit 1
 }
 if {$tree_count eq ""} { set tree_count 11 }
+if {$systolic_qs eq ""} { set systolic_qs 16 }
 
 set part xcau25p-ffvb676-1-e
 set_param general.maxThreads 8
@@ -19,7 +22,6 @@ set root [file normalize [file join [file dirname [info script]] ..]]
 set src  [file join $root hwpq hybrid_systolic_bram_heap src]
 
 # Capacity as the shared testbench counts it: full trees plus both systolic buffers at threshold.
-set systolic_qs 16
 set queue_size [expr {$tree_count * $tree_qs + 2 * ($systolic_qs - 2)}]
 
 # A target that misses by more than 1 ns ends the sweep, as in the library sweep.
@@ -28,7 +30,7 @@ set clock_freq_values {50 75 100 125 150 175 200 250 300 350 400}
 file mkdir $result_dir $work_dir
 set log_file [file join $result_dir "vivado_analysis_on_queue_size_${queue_size}.txt"]
 set fh [open $log_file w]
-puts $fh "Analysis for QUEUE_SIZE = ${queue_size}, DATA_WIDTH = ${data_width}, TREE_QUEUE_SIZE = ${tree_qs}, TREE_COUNT = ${tree_count}\n"
+puts $fh "Analysis for QUEUE_SIZE = ${queue_size}, DATA_WIDTH = ${data_width}, TREE_QUEUE_SIZE = ${tree_qs}, TREE_COUNT = ${tree_count}, SYSTOLIC_QUEUE_SIZE = ${systolic_qs}\n"
 close $fh
 
 proc duration_str {s} {
@@ -71,7 +73,8 @@ set t0 [clock seconds]
 synth_design -top hybrid_systolic_heap -part $part -flatten_hierarchy full \
   -verilog_define HYBRID_DATA_WIDTH=$data_width \
   -verilog_define HYBRID_BRAM_TREE_QUEUE_SIZE=$tree_qs \
-  -verilog_define HYBRID_TREE_COUNT=$tree_count
+  -verilog_define HYBRID_TREE_COUNT=$tree_count \
+  -verilog_define HYBRID_SYSTOLIC_QUEUE_SIZE=$systolic_qs
 set synth_duration [expr {[clock seconds] - $t0}]
 set synth_dcp [file join $work_dir synth.dcp]
 write_checkpoint -force $synth_dcp

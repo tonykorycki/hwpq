@@ -10,7 +10,7 @@
 #   -t  per-tree queue sizes, each 2^k - 1 (default "2047")
 #   -n  tree counts (default "11")
 #   -s  systolic buffer sizes, even and at least 6 (default "16")
-# Results:  hwpq/hybrid_systolic_bram_heap/vivado_analysis_results_<W>bit_xcau25p/ at the default
+# Results:  hwpq/hybrid_systolic_bram_heap/vivado_analysis_results_<W>bit_xcvu47p/ at the default
 #   tree count and systolic size; hwpq/hybrid_systolic_bram_heap/sweep_<W>bit_n<N>_s<S>/ otherwise,
 #   which the library plots do not read.
 # Logs, checkpoints and path reports:  build/vivado_hybrid/<W>b_tree<T>_n<N>_s<S>/
@@ -46,7 +46,7 @@ done
 run_one() {
   local w="$1" t="$2" n="$3" s="$4"
   local qs=$(( n * t + 2 * (s - 2) ))
-  local result_dir="${MODULE_DIR}/vivado_analysis_results_${w}bit_xcau25p"
+  local result_dir="${MODULE_DIR}/vivado_analysis_results_${w}bit_xcvu47p"
   [ "${n}" = 11 ] && [ "${s}" = 16 ] || result_dir="${MODULE_DIR}/sweep_${w}bit_n${n}_s${s}"
   local tag="${w}b tree=${t} n=${n} s=${s}"
   local work_dir="${ROOT}/build/vivado_hybrid/${w}b_tree${t}_n${n}_s${s}"

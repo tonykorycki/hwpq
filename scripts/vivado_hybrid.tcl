@@ -15,7 +15,7 @@ if {$work_dir eq ""} {
 if {$tree_count eq ""} { set tree_count 11 }
 if {$systolic_qs eq ""} { set systolic_qs 16 }
 
-set part xcau25p-ffvb676-1-e
+set part xcvu47p-fsvh2892-2-e
 set_param general.maxThreads 8
 
 set root [file normalize [file join [file dirname [info script]] ..]]
